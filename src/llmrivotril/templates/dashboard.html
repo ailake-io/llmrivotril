@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LLM-Rivotril Telemetry Dashboard</title>
+    <script src="/static/tailwind.min.js"></script>
+    <script>
+        async function fetchMetrics() {
+            const res = await fetch('/api/metrics');
+            const data = await res.json();
+            document.getElementById('req-total').innerText = data.requests_total;
+            document.getElementById('g-blocks').innerText = data.guardrail_blocks;
+            document.getElementById('h-blocks').innerText = data.hallucinations_detected;
+            document.getElementById('tokens').innerText = data.total_tokens_consumed;
+            document.getElementById('latency').innerText = data.avg_latency + 's';
+            document.getElementById('success').innerText = data.success_rate + '%';
+
+            let logHtml = '';
+            data.logs.forEach(log => {
+                let badge = '<span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">OK</span>';
+                if (log.guardrail_blocked) badge = '<span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">Guardrail Block</span>';
+                if (log.hallucination_blocked) badge = '<span class="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">Hallucination Block</span>';
+
+                logHtml += `<tr class="border-b"><td class="p-3 text-sm">${log.timestamp}</td><td class="p-3 text-sm font-mono">${log.prompt}</td><td class="p-3 text-sm">${badge}</td><td class="p-3 text-sm">${log.tokens}</td><td class="p-3 text-sm">${log.latency_sec}s</td></tr>`;
+            });
+            document.getElementById('log-rows').innerHTML = logHtml;
+        }
+        setInterval(fetchMetrics, 2000);
+        window.onload = fetchMetrics;
+    </script>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans p-6">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">💊 LLM-Rivotril Dashboard</h1>
+            <span class="text-xs bg-indigo-900 text-indigo-200 px-3 py-1 rounded-full border border-indigo-700">Active Monitoring</span>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Total Requests</p>
+                <p id="req-total" class="text-2xl font-bold mt-1">0</p>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Guardrail Blocks</p>
+                <p id="g-blocks" class="text-2xl font-bold text-red-400 mt-1">0</p>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Hallucinations Blocked</p>
+                <p id="h-blocks" class="text-2xl font-bold text-yellow-400 mt-1">0</p>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Tokens Consumed</p>
+                <p id="tokens" class="text-2xl font-bold text-blue-400 mt-1">0</p>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Avg Latency</p>
+                <p id="latency" class="text-2xl font-bold mt-1">0s</p>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Success Rate</p>
+                <p id="success" class="text-2xl font-bold text-green-400 mt-1">100%</p>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
+            <div class="p-4 border-b border-gray-700 font-semibold">Live Execution Audit Trail</div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-700/50 text-gray-400 text-xs uppercase">
+                            <th class="p-3">Timestamp</th>
+                            <th class="p-3">Prompt Sample</th>
+                            <th class="p-3">Status / Guardrail</th>
+                            <th class="p-3">Tokens</th>
+                            <th class="p-3">Latency</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-rows">
+                        <tr><td colspan="5" class="p-4 text-center text-gray-500">Waiting for agent requests...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
