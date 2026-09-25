@@ -30,3 +30,36 @@ def test_clear():
     memory.add_turn("user", "hello")
     memory.clear()
     assert memory.get_context() == []
+
+
+def test_to_dict_and_from_dict():
+    memory = MemoryStore(retention_window=3)
+    memory.add_turn("user", "hello")
+    memory.add_turn("assistant", "hi")
+
+    snapshot = memory.to_dict()
+    assert snapshot["retention_window"] == 3
+    assert len(snapshot["history"]) == 2
+
+    restored = MemoryStore()
+    restored.from_dict(snapshot)
+    assert restored.get_context() == memory.get_context()
+    assert restored.retention_window == 3
+
+
+def test_save_and_load_from_json(tmp_path):
+    memory = MemoryStore(retention_window=2)
+    memory.add_turn("user", "hello")
+    memory.add_turn("assistant", "hi there")
+
+    path = tmp_path / "memory.json"
+    memory.save_to_json(path)
+
+    restored = MemoryStore()
+    restored.load_from_json(path)
+
+    assert restored.retention_window == 2
+    assert restored.get_context() == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi there"},
+    ]

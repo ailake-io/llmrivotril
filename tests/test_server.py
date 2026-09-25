@@ -73,3 +73,29 @@ def test_static_tailwind_file_is_served():
     response = client.get("/static/tailwind.min.js")
     assert response.status_code == 200
     assert "tailwind" in response.text.lower() or "@tailwind" in response.text
+
+
+def test_prometheus_metrics_endpoint():
+    client = TestClient(server.app)
+    response = client.get("/api/metrics/prometheus")
+    assert response.status_code == 200
+    text = response.text
+    assert "llmrivotril_requests_total" in text
+    assert "llmrivotril_guardrail_blocks_total" in text
+    assert "llmrivotril_hallucinations_detected_total" in text
+    assert "llmrivotril_tokens_consumed_total" in text
+    assert "llmrivotril_success_rate" in text
+    assert "llmrivotril_avg_latency_seconds" in text
+
+
+def test_prometheus_metrics_requires_token(monkeypatch):
+    monkeypatch.setattr(server, "DASHBOARD_TOKEN", "secret-token")
+    client = TestClient(server.app)
+
+    assert client.get("/api/metrics/prometheus").status_code == 401
+    assert (
+        client.get(
+            "/api/metrics/prometheus", headers={"Authorization": "Bearer secret-token"}
+        ).status_code
+        == 200
+    )

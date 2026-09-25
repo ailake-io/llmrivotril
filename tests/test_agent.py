@@ -21,12 +21,21 @@ class _MockProvider(BaseProvider):
         super().__init__()
         self._complete_mock = MagicMock()
         self._acomplete_mock = AsyncMock()
+        self._stream_chunks: list[str] = []
+        self._astream_chunks: list[str] = []
 
     def complete(self, *args, **kwargs):
         return self._complete_mock(*args, **kwargs)
 
     def acomplete(self, *args, **kwargs):
         return self._acomplete_mock(*args, **kwargs)
+
+    def stream(self, *args, **kwargs):
+        yield from self._stream_chunks
+
+    async def astream(self, *args, **kwargs):
+        for chunk in self._astream_chunks:
+            yield chunk
 
 
 def _make_agent(**kwargs):
@@ -235,3 +244,41 @@ def test_agent_passes_provider_from_env(monkeypatch):
         RivotrilAgent(api_key="test-key")
 
         mock_get_provider.assert_called_once_with("gemini", api_key="test-key", base_url=None)
+
+
+def test_agent_run_stream_yields_chunks():
+    agent, provider = _make_agent()
+    provider._stream_chunks = ["Hello", ", ", "world!"]
+
+    chunks = list(agent.run_stream("hi"))
+
+    assert chunks == ["Hello", ", ", "world!"]
+    assert agent.memory.get_context()[-1]["content"] == "Hello, world!"
+
+
+@pytest.mark.asyncio
+async def test_agent_run_stream_async_yields_chunks():
+    agent, provider = _make_async_agent()
+    provider._astream_chunks = ["Async", " ", "stream"]
+
+    chunks = [chunk async for chunk in agent.run_stream_async("hi")]
+
+    assert chunks == ["Async", " ", "stream"]
+    assert agent.memory.get_context()[-1]["content"] == "Async stream"
+
+
+def test_agent_run_stream_applies_output_guardrail():
+    guardrail = Guardrail(name="short", max_tokens=5)
+    agent, provider = _make_agent(guardrails=[guardrail])
+    provider._stream_chunks = ["This response is way too long to pass the token limit"]
+
+    with pytest.raises(GuardrailViolationError):
+        list(agent.run_stream("hi"))
+
+
+def test_agent_run_stream_blocks_input_guardrail():
+    guardrail = Guardrail(name="safe", disallowed_keywords=["forbidden"])
+    agent, provider = _make_agent(guardrails=[guardrail])
+
+    with pytest.raises(GuardrailViolationError):
+        list(agent.run_stream("forbidden word"))

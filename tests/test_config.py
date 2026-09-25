@@ -152,3 +152,52 @@ def test_load_config_precedence_env_over_file(temp_config):
     config = load_config()
     assert config["model"] == "env-model"
     assert config["request_timeout"] == 10.0
+
+
+def test_load_config_reads_dotenv(temp_config, monkeypatch, caplog):
+    env_path = temp_config / ".env"
+    env_path.write_text('RIVOTRIL_MODEL="env-from-dotenv"\n')
+    monkeypatch.chdir(temp_config)
+
+    config = load_config()
+    assert config["model"] == "env-from-dotenv"
+
+
+def test_load_config_warns_when_api_key_comes_from_file(temp_config, monkeypatch, caplog):
+    config_path = temp_config / "llmrivotril.toml"
+    config_path.write_text('api_key = "sk-file-key"\n')
+    monkeypatch.chdir(temp_config)
+
+    with caplog.at_level("WARNING", logger="llmrivotril"):
+        load_config()
+
+    assert any("API key" in record.message for record in caplog.records)
+
+
+def test_load_file_config_reads_llmrivotril_yaml(temp_config):
+    config_path = temp_config / "llmrivotril.yaml"
+    config_path.write_text(
+        'model: "gpt-4o-mini"\napi_key: "yaml-key"\nrequest_timeout: 20.0\nretry_max_attempts: 4\n'
+    )
+
+    config = load_file_config()
+    assert config["model"] == "gpt-4o-mini"
+    assert config["api_key"] == "yaml-key"
+    assert config["request_timeout"] == 20.0
+    assert config["retry_max_attempts"] == 4
+
+
+def test_load_file_config_prefers_toml_over_yaml(temp_config):
+    (temp_config / "llmrivotril.toml").write_text('model = "toml-model"\n')
+    (temp_config / "llmrivotril.yaml").write_text('model: "yaml-model"\n')
+
+    config = load_file_config()
+    assert config["model"] == "toml-model"
+
+
+def test_load_file_config_reads_yml_extension(temp_config):
+    config_path = temp_config / "llmrivotril.yml"
+    config_path.write_text('model: "yml-model"\n')
+
+    config = load_file_config()
+    assert config["model"] == "yml-model"

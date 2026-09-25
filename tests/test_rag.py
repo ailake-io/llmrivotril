@@ -9,6 +9,7 @@ from llmrivotril import (
     SimpleChunker,
     TextLoader,
 )
+from llmrivotril.rag.loaders import CSVLoader, HTMLLoader, PDFLoader
 from llmrivotril.rag.retrievers import InMemoryKeywordRetriever
 
 
@@ -103,3 +104,59 @@ def test_markdown_loader_as_text_loader_extension():
     docs = loader.load(Path(__file__).parent / ".." / "docs" / "usage.md")
     if docs:
         assert docs[0].metadata["type"] == "text"
+
+
+def test_csv_loader_loads_file(tmp_path):
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("name,description\nAlice,engineer\nBob,designer\n")
+
+    loader = CSVLoader(text_columns=["name", "description"])
+    docs = loader.load(csv_path)
+
+    assert len(docs) == 2
+    assert "Alice" in docs[0].content
+    assert "engineer" in docs[0].content
+    assert docs[0].metadata["type"] == "csv"
+
+
+def test_csv_loader_loads_directory(tmp_path):
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("name,description\nAlice,engineer\n")
+
+    loader = CSVLoader()
+    docs = loader.load(tmp_path)
+
+    assert len(docs) == 1
+    assert docs[0].metadata["type"] == "csv"
+
+
+def test_html_loader_raises_without_beautifulsoup(tmp_path):
+    html_path = tmp_path / "page.html"
+    html_path.write_text("<html><body>Hello</body></html>")
+
+    real_modules = dict(__import__("sys").modules)
+    try:
+        import sys
+
+        sys.modules["bs4"] = None  # type: ignore[assignment]
+        with pytest.raises(ImportError, match="beautifulsoup4"):
+            HTMLLoader().load(html_path)
+    finally:
+        for key, value in real_modules.items():
+            sys.modules[key] = value
+
+
+def test_pdf_loader_raises_without_pypdf(tmp_path):
+    pdf_path = tmp_path / "doc.pdf"
+    pdf_path.write_text("not a real pdf")
+
+    real_modules = dict(__import__("sys").modules)
+    try:
+        import sys
+
+        sys.modules["pypdf"] = None  # type: ignore[assignment]
+        with pytest.raises(ImportError, match="pypdf"):
+            PDFLoader().load(pdf_path)
+    finally:
+        for key, value in real_modules.items():
+            sys.modules[key] = value

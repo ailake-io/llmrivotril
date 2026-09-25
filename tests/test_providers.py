@@ -1,3 +1,4 @@
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -185,3 +186,113 @@ def test_provider_response_text_for_structured():
 def test_provider_response_text_for_content():
     response = ProviderResponse(content="hello")
     assert response.text == "hello"
+
+
+def _build_anthropic_response(text: str) -> MagicMock:
+    mock_response = MagicMock()
+    mock_block = MagicMock()
+    mock_block.text = text
+    mock_response.content = [mock_block]
+    return mock_response
+
+
+def test_anthropic_provider_unstructured_mocked():
+    provider = AnthropicProvider(api_key="test-key")
+    fake_anthropic = MagicMock()
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _build_anthropic_response("Hello from Claude")
+    fake_anthropic.Anthropic.return_value = mock_client
+
+    with patch.dict(sys.modules, {"anthropic": fake_anthropic}):
+        response = provider.complete(
+            messages=[{"role": "user", "content": "hi"}], model="claude-3-opus"
+        )
+
+    assert response.text == "Hello from Claude"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_provider_async_unstructured_mocked():
+    provider = AnthropicProvider(api_key="test-key")
+    fake_anthropic = MagicMock()
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=_build_anthropic_response("Async Claude"))
+    fake_anthropic.AsyncAnthropic.return_value = mock_client
+
+    with patch.dict(sys.modules, {"anthropic": fake_anthropic}):
+        response = await provider.acomplete(
+            messages=[{"role": "user", "content": "hi"}], model="claude-3-opus"
+        )
+
+    assert response.text == "Async Claude"
+
+
+def test_cohere_provider_unstructured_mocked():
+    provider = CohereProvider(api_key="test-key")
+    fake_cohere = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Hello from Cohere"
+    mock_client = MagicMock()
+    mock_client.chat.return_value = mock_response
+    fake_cohere.Client.return_value = mock_client
+
+    with patch.dict(sys.modules, {"cohere": fake_cohere}):
+        response = provider.complete(
+            messages=[{"role": "user", "content": "hi"}], model="command-r"
+        )
+
+    assert response.text == "Hello from Cohere"
+
+
+@pytest.mark.asyncio
+async def test_cohere_provider_async_unstructured_mocked():
+    provider = CohereProvider(api_key="test-key")
+    fake_cohere = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Async Cohere"
+    mock_client = MagicMock()
+    mock_client.chat = AsyncMock(return_value=mock_response)
+    fake_cohere.AsyncClient.return_value = mock_client
+
+    with patch.dict(sys.modules, {"cohere": fake_cohere}):
+        response = await provider.acomplete(
+            messages=[{"role": "user", "content": "hi"}], model="command-r"
+        )
+
+    assert response.text == "Async Cohere"
+
+
+def test_gemini_provider_unstructured_mocked():
+    provider = GeminiProvider(api_key="test-key")
+    fake_genai = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Hello from Gemini"
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = mock_response
+    fake_genai.GenerativeModel.return_value = mock_model
+
+    with patch.dict(sys.modules, {"google.generativeai": fake_genai}):
+        response = provider.complete(
+            messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
+        )
+
+    assert response.text == "Hello from Gemini"
+    fake_genai.configure.assert_called_once_with(api_key="test-key")
+
+
+@pytest.mark.asyncio
+async def test_gemini_provider_async_unstructured_mocked():
+    provider = GeminiProvider(api_key="test-key")
+    fake_genai = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Async Gemini"
+    mock_model = MagicMock()
+    mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+    fake_genai.GenerativeModel.return_value = mock_model
+
+    with patch.dict(sys.modules, {"google.generativeai": fake_genai}):
+        response = await provider.acomplete(
+            messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
+        )
+
+    assert response.text == "Async Gemini"
