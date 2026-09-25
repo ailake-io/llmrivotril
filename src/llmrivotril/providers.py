@@ -27,9 +27,17 @@ class ProviderResponse:
     Mimics the subset of OpenAI's ``ChatCompletion`` used by the agent.
     """
 
-    def __init__(self, content: str | None = None, structured: BaseModel | None = None) -> None:
+    def __init__(
+        self,
+        content: str | None = None,
+        structured: BaseModel | None = None,
+        tool_calls: Any | None = None,
+        raw_response: Any | None = None,
+    ) -> None:
         self.content = content
         self.structured = structured
+        self.tool_calls = tool_calls
+        self.raw_response = raw_response
 
     @property
     def text(self) -> str:
@@ -60,6 +68,7 @@ class BaseProvider(ABC):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         """Run a synchronous chat completion."""
@@ -70,6 +79,7 @@ class BaseProvider(ABC):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> Awaitable[ProviderResponse]:
         """Run an asynchronous chat completion."""
@@ -174,36 +184,58 @@ class OpenAIProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
+        request_kwargs: dict[str, Any] = {}
+        if tools is not None:
+            request_kwargs["tools"] = tools
+
+        create_kwargs = {**request_kwargs, **kwargs}
         if response_model is not None:
             result = self._get_client().chat.completions.create(
-                model=model, response_model=response_model, messages=messages, **kwargs
+                model=model, response_model=response_model, messages=messages, **create_kwargs
             )
             return ProviderResponse(structured=result)
 
         completion = self._get_base_client().chat.completions.create(
-            model=model, messages=messages, **kwargs
+            model=model, messages=messages, **create_kwargs
         )
-        return ProviderResponse(content=completion.choices[0].message.content)
+        message = completion.choices[0].message
+        return ProviderResponse(
+            content=message.content,
+            tool_calls=getattr(message, "tool_calls", None),
+            raw_response=completion,
+        )
 
     async def acomplete(
         self,
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
+        request_kwargs: dict[str, Any] = {}
+        if tools is not None:
+            request_kwargs["tools"] = tools
+
+        create_kwargs = {**request_kwargs, **kwargs}
         if response_model is not None:
             result = await self._get_async_client().chat.completions.create(
-                model=model, response_model=response_model, messages=messages, **kwargs
+                model=model, response_model=response_model, messages=messages, **create_kwargs
             )
             return ProviderResponse(structured=result)
 
         completion = await self._get_async_base_client().chat.completions.create(
-            model=model, messages=messages, **kwargs
+            model=model, messages=messages, **create_kwargs
         )
-        return ProviderResponse(content=completion.choices[0].message.content)
+        message = completion.choices[0].message
+        return ProviderResponse(
+            content=message.content,
+            tool_calls=getattr(message, "tool_calls", None),
+            raw_response=completion,
+        )
 
     def stream(
         self,
@@ -284,6 +316,7 @@ class AnthropicProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_client()
@@ -315,6 +348,7 @@ class AnthropicProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_async_client()
@@ -394,6 +428,7 @@ class CohereProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_client()
@@ -423,6 +458,7 @@ class CohereProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_async_client()
@@ -487,6 +523,7 @@ class GeminiProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_client()
@@ -510,6 +547,7 @@ class GeminiProvider(BaseProvider):
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_client()
