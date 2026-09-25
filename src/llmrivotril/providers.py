@@ -500,7 +500,7 @@ class GeminiProvider(BaseProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            import google.generativeai as genai  # type: ignore[import-untyped]
+            import google.generativeai as genai
 
             genai.configure(api_key=self.api_key, **self.extra_kwargs)
             self._client = genai

@@ -271,7 +271,9 @@ def test_gemini_provider_unstructured_mocked():
     mock_model.generate_content.return_value = mock_response
     fake_genai.GenerativeModel.return_value = mock_model
 
-    with patch.dict(sys.modules, {"google.generativeai": fake_genai}):
+    fake_google = MagicMock()
+    fake_google.generativeai = fake_genai
+    with patch.dict(sys.modules, {"google": fake_google, "google.generativeai": fake_genai}):
         response = provider.complete(
             messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
         )
@@ -290,7 +292,9 @@ async def test_gemini_provider_async_unstructured_mocked():
     mock_model.generate_content_async = AsyncMock(return_value=mock_response)
     fake_genai.GenerativeModel.return_value = mock_model
 
-    with patch.dict(sys.modules, {"google.generativeai": fake_genai}):
+    fake_google = MagicMock()
+    fake_google.generativeai = fake_genai
+    with patch.dict(sys.modules, {"google": fake_google, "google.generativeai": fake_genai}):
         response = await provider.acomplete(
             messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
         )
