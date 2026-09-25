@@ -31,10 +31,10 @@ jobs:
           pip install -e ".[ci]"
 
       - name: Lint with ruff
-        run: ruff check src tests
+        run: ruff check src tests examples scripts
 
       - name: Check formatting with ruff
-        run: ruff format --check src tests
+        run: ruff format --check src tests examples scripts
 
       - name: Type check with mypy
         run: mypy src
