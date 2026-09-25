@@ -89,7 +89,7 @@ dev = [
 llmrivotril = "llmrivotril.cli:cli"
 
 [project.urls]
-Homepage = "https://github.com/username/llmrivotril"
+Homepage = "https://github.com/ailake-io/llmrivotril"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

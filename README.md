@@ -31,7 +31,7 @@ pip install llmrivotril[semantic]
 For local development:
 
 ```bash
-git clone https://github.com/username/llmrivotril.git
+git clone https://github.com/ailake-io/llmrivotril.git
 cd llmrivotril
 pip install -e ".[dev,semantic]"
 ```
@@ -354,7 +354,7 @@ pytest -v -m slow
 
 ## CI/CD
 
-![CI](https://github.com/username/llmrivotril/workflows/CI/badge.svg)
+![CI](https://github.com/ailake-io/llmrivotril/workflows/CI/badge.svg)
 
 The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.13.
 
