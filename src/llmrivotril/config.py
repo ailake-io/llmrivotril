@@ -19,7 +19,7 @@ from pathlib import Path
 try:
     import tomllib
 except ImportError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore[no-redef, import-not-found]
+    import tomli as tomllib  # type: ignore[no-redef]
 
 _ENV_FLOATS = {
     "RIVOTRIL_REQUEST_TIMEOUT",

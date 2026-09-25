@@ -17,11 +17,12 @@ from pydantic import BaseModel
 from llmrivotril import Guardrail, RivotrilAgent
 from llmrivotril.exceptions import GuardrailViolationError, HallucinationDetectedError
 from llmrivotril.metrics import global_metrics
+from llmrivotril.providers import BaseProvider, ProviderResponse
 from llmrivotril.verifier import KeywordOverlapVerifier, Verifier
 
 
-class FakeLLM:
-    """Deterministic mock responses."""
+class _MockProvider(BaseProvider):
+    """Deterministic mock provider for the comparison demo."""
 
     def __init__(self) -> None:
         self.responses: list[tuple[str, str]] = [
@@ -40,51 +41,46 @@ class FakeLLM:
             ("hello", "Hello! How can I help you today?"),
         ]
 
-    def chat_completions_create(self, *, model: str, messages: list[dict[str, str]]) -> Any:
-        prompt = messages[-1]["content"].lower()
-        response_text = "I'm a mock LLM."
+    def _lookup(self, messages: list[dict[str, str]]) -> str:
+        prompt = messages[-1].get("content", "").lower()
         for key, text in self.responses:
             if key in prompt:
-                response_text = text
-                break
+                return text
+        return "I'm a mock LLM."
 
-        class Choice:
-            class Message:
-                content = response_text
-
-            message = Message()
-
-        class Completion:
-            choices = [Choice()]
-
-        return Completion()
-
-
-class FakeInstructor:
-    def chat_completions_create(self, **kwargs: Any) -> Any:
-        response_model = kwargs.get("response_model")
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
         if response_model is not None:
-            return response_model(value=42)
+            return ProviderResponse(structured=response_model(value=42))
+        return ProviderResponse(content=self._lookup(messages))
 
-        class Dummy:
-            def model_dump_json(self) -> str:
-                return '{"value": 42}'
-
-        return Dummy()
+    async def acomplete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
+        return self.complete(messages, model, response_model=response_model, **kwargs)
 
 
 class PlainLLM:
     """Simulates a raw LLM call without any safety layer."""
 
     def __init__(self) -> None:
-        self.fake = FakeLLM()
+        self.provider = _MockProvider()
 
     def call(self, prompt: str) -> str:
-        completion = self.fake.chat_completions_create(
+        response = self.provider.complete(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
         )
-        return completion.choices[0].message.content
+        return response.text
 
 
 class Answer(BaseModel):
@@ -121,6 +117,7 @@ def _with_package(scenarios: list[tuple[str, str, str | None]]) -> None:
 
     agent = RivotrilAgent(
         api_key="mock-key",
+        provider=_MockProvider(),
         guardrails=[
             Guardrail(
                 name="content-safety",
@@ -140,11 +137,6 @@ def _with_package(scenarios: list[tuple[str, str, str | None]]) -> None:
         ],
         verifier=Verifier(check_fn=KeywordOverlapVerifier(threshold=0.1).as_callable()),
     )
-
-    fake_llm = FakeLLM()
-    fake_instructor = FakeInstructor()
-    agent.base_client.chat.completions.create = fake_llm.chat_completions_create
-    agent.client.chat.completions.create = fake_instructor.chat_completions_create
 
     for label, prompt, ctx in scenarios:
         print(f"\n[{label}] Prompt: {prompt}")

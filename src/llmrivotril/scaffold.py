@@ -115,17 +115,7 @@ from {project_name}.agent import agent
 
 
 def test_agent_run_with_mock():
-    with (
-        patch("llmrivotril.agent.OpenAI") as mock_openai_class,
-        patch("llmrivotril.agent.instructor.from_openai") as mock_from_openai,
-    ):
-        mock_base = MagicMock()
-        mock_openai_class.return_value = mock_base
-        mock_from_openai.return_value = MagicMock()
-        mock_completion = MagicMock()
-        mock_completion.choices[0].message.content = "Mock response"
-        mock_base.chat.completions.create.return_value = mock_completion
-
+    with patch.object(agent.provider, "complete", return_value=MagicMock(text="Mock response")):
         result = agent.run("hello")
         assert result == "Mock response"
 """

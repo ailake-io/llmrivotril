@@ -20,11 +20,12 @@ from pydantic import BaseModel
 from llmrivotril import Guardrail, RivotrilAgent
 from llmrivotril.exceptions import GuardrailViolationError, HallucinationDetectedError
 from llmrivotril.metrics import global_metrics
+from llmrivotril.providers import BaseProvider, ProviderResponse
 from llmrivotril.verifier import KeywordOverlapVerifier, Verifier
 
 
-class FakeLLM:
-    """Deterministic mock responses for the --mock demo."""
+class _MockProvider(BaseProvider):
+    """Deterministic mock provider for the --mock demo."""
 
     def __init__(self) -> None:
         self.responses: list[tuple[str, str]] = [
@@ -43,49 +44,32 @@ class FakeLLM:
             ("hello", "Hello! How can I help you today?"),
         ]
 
-    def chat_completions_create(self, *, model: str, messages: list[dict[str, str]]) -> Any:
-        prompt = messages[-1]["content"].lower()
-        response_text = "I'm a mock LLM."
+    def _lookup(self, messages: list[dict[str, str]]) -> str:
+        prompt = messages[-1].get("content", "").lower()
         for key, text in self.responses:
             if key in prompt:
-                response_text = text
-                break
+                return text
+        return "I'm a mock LLM."
 
-        class Choice:
-            class Message:
-                content = response_text
-
-            message = Message()
-
-        class Completion:
-            choices = [Choice()]
-
-        return Completion()
-
-
-class FakeInstructor:
-    """Deterministic mock structured responses for the --mock demo."""
-
-    def chat_completions_create(self, **kwargs: Any) -> Any:
-        response_model = kwargs.get("response_model")
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
         if response_model is not None:
-            return response_model(value=42)
+            return ProviderResponse(structured=response_model(value=42))
+        return ProviderResponse(content=self._lookup(messages))
 
-        class Dummy:
-            def model_dump_json(self) -> str:
-                return '{"value": 42}'
-
-        return Dummy()
-
-
-def _attach_mock_clients(agent: RivotrilAgent) -> None:
-    fake_llm = FakeLLM()
-    fake_instructor = FakeInstructor()
-
-    agent.base_client.chat.completions.create = fake_llm.chat_completions_create
-    agent.async_base_client.chat.completions.create = fake_llm.chat_completions_create
-    agent.client.chat.completions.create = fake_instructor.chat_completions_create
-    agent.async_client.chat.completions.create = fake_instructor.chat_completions_create
+    async def acomplete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
+        return self.complete(messages, model, response_model=response_model, **kwargs)
 
 
 def _print_metrics() -> None:
@@ -186,6 +170,9 @@ def main() -> None:
     if args.base_url:
         agent_kwargs["base_url"] = args.base_url
 
+    if args.mock:
+        agent_kwargs["provider"] = _MockProvider()
+
     agent = RivotrilAgent(
         **agent_kwargs,
         guardrails=[
@@ -211,7 +198,6 @@ def main() -> None:
     )
 
     if args.mock:
-        _attach_mock_clients(agent)
         print("Running in MOCK mode (no API calls).\n")
     else:
         print("Running in LIVE mode (real API calls).\n")

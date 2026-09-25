@@ -22,50 +22,46 @@ from pydantic import BaseModel
 from llmrivotril import Guardrail, RivotrilAgent
 from llmrivotril.exceptions import GuardrailViolationError, HallucinationDetectedError
 from llmrivotril.metrics import global_metrics
+from llmrivotril.providers import BaseProvider, ProviderResponse
 from llmrivotril.verifier import KeywordOverlapVerifier, Verifier
 
 
-class FakeLLM:
-    """Deterministic mock responses for benchmarking."""
+class _MockProvider(BaseProvider):
+    """Deterministic mock provider for benchmarking."""
 
     def __init__(self, responses: dict[str, str]) -> None:
         self.responses = responses
 
-    def chat_completions_create(self, *, model: str, messages: list[dict[str, str]]) -> Any:
-        prompt = messages[-1]["content"].lower()
-        response_text = "default mock response"
+    def _lookup(self, messages: list[dict[str, str]]) -> str:
+        prompt = messages[-1].get("content", "").lower()
         for key, text in self.responses.items():
             if key in prompt:
-                response_text = text
-                break
+                return text
+        return "default mock response"
 
-        class Choice:
-            class Message:
-                content = response_text
-
-            message = Message()
-
-        class Completion:
-            choices = [Choice()]
-
-        return Completion()
-
-
-class FakeInstructor:
-    def chat_completions_create(self, **kwargs: Any) -> Any:
-        response_model = kwargs.get("response_model")
-        messages = kwargs.get("messages", [])
-        prompt = messages[-1].get("content", "").lower() if messages else ""
-        invalid_value = "forty-two" in prompt
-
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
         if response_model is not None:
-            return response_model(value="forty-two" if invalid_value else 42)
+            prompt = messages[-1].get("content", "").lower() if messages else ""
+            invalid_value = "forty-two" in prompt
+            return ProviderResponse(
+                structured=response_model(value="forty-two" if invalid_value else 42)
+            )
+        return ProviderResponse(content=self._lookup(messages))
 
-        class Dummy:
-            def model_dump_json(self) -> str:
-                return '{"value": 42}'
-
-        return Dummy()
+    async def acomplete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
+        return self.complete(messages, model, response_model=response_model, **kwargs)
 
 
 class Answer(BaseModel):
@@ -121,18 +117,12 @@ def _run_case(agent: RivotrilAgent, case: BenchmarkCase) -> str:
         return f"UNEXPECTED_ERROR: {exc}"
 
 
-def _attach_mock_responses(agent: RivotrilAgent, cases: list[BenchmarkCase]) -> None:
+def _build_mock_provider(cases: list[BenchmarkCase]) -> _MockProvider:
     responses = {}
     for case in cases:
         if case.mock_response:
             responses[case.prompt.lower()] = case.mock_response
-
-    fake_llm = FakeLLM(responses)
-    fake_instructor = FakeInstructor()
-    agent.base_client.chat.completions.create = fake_llm.chat_completions_create
-    agent.async_base_client.chat.completions.create = fake_llm.chat_completions_create
-    agent.client.chat.completions.create = fake_instructor.chat_completions_create
-    agent.async_client.chat.completions.create = fake_instructor.chat_completions_create
+    return _MockProvider(responses)
 
 
 def _build_cases() -> list[BenchmarkCase]:
@@ -239,6 +229,7 @@ def main() -> None:
 
     agent = RivotrilAgent(
         api_key="mock-key",
+        provider=_build_mock_provider(cases),
         guardrails=[
             Guardrail(
                 name="content-safety",
@@ -257,8 +248,6 @@ def main() -> None:
         ],
         verifier=Verifier(check_fn=KeywordOverlapVerifier(threshold=0.1).as_callable()),
     )
-
-    _attach_mock_responses(agent, cases)
 
     result = BenchmarkResult()
     print("Running benchmark...\n")
