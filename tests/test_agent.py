@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from llmrivotril import Guardrail, MemoryStore, RivotrilAgent
-from llmrivotril.exceptions import GuardrailViolationError
+from llmrivotril.exceptions import GuardrailViolationError, TokenBudgetExceededError
 from llmrivotril.providers import BaseProvider, ProviderResponse
 
 
@@ -282,3 +282,32 @@ def test_agent_run_stream_blocks_input_guardrail():
 
     with pytest.raises(GuardrailViolationError):
         list(agent.run_stream("forbidden word"))
+
+
+def test_agent_enforces_max_prompt_tokens():
+    agent, _ = _make_agent(max_prompt_tokens=1)
+
+    with pytest.raises(TokenBudgetExceededError):
+        agent.run("this prompt is definitely longer than one token")
+
+
+def test_agent_enforces_max_session_tokens():
+    agent, provider = _make_agent(max_session_tokens=4)
+    provider._complete_mock.return_value = ProviderResponse(content="OK")
+
+    agent.run("hi")
+
+    with pytest.raises(TokenBudgetExceededError):
+        agent.run("this next prompt will definitely exceed the small session budget")
+
+
+def test_agent_tracks_session_tokens_across_runs():
+    agent, provider = _make_agent()
+    provider._complete_mock.return_value = ProviderResponse(content="OK")
+
+    agent.run("hi")
+    first_session = agent._session_tokens_used
+    assert first_session > 0
+
+    agent.run("hello again")
+    assert agent._session_tokens_used > first_session

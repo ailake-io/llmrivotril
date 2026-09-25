@@ -7,10 +7,15 @@ import tiktoken
 from pydantic import BaseModel, ValidationError
 
 from .config import load_config
-from .exceptions import GuardrailViolationError, HallucinationDetectedError
+from .exceptions import (
+    GuardrailViolationError,
+    HallucinationDetectedError,
+    TokenBudgetExceededError,
+)
 from .guardrails import Guardrail
 from .memory import MemoryStore
 from .metrics import MetricsCollector, global_metrics
+from .plugins import load_plugins
 from .providers import BaseProvider, OpenAIProvider, get_provider
 from .resilience import (
     AsyncRateLimiter,
@@ -19,6 +24,7 @@ from .resilience import (
     default_retryable_exceptions,
     make_retry,
 )
+from .tools import ToolRegistry, normalize_tool_calls
 from .verifier import Verifier
 
 logger = logging.getLogger("llmrivotril")
@@ -65,7 +71,11 @@ class RivotrilAgent:
         retry_max_wait: Any = _UNSET,
         circuit_failure_threshold: Any = _UNSET,
         circuit_recovery_timeout: Any = _UNSET,
+        max_session_tokens: Any = _UNSET,
+        max_prompt_tokens: Any = _UNSET,
         provider: str | BaseProvider | None = None,
+        plugins: list[Any] | str | None = None,
+        metrics_path: Any = _UNSET,
     ) -> None:
         config = load_config()
 
@@ -91,10 +101,28 @@ class RivotrilAgent:
             circuit_recovery_timeout, "circuit_recovery_timeout", 30.0
         )
 
-        self.guardrails = guardrails or []
+        self.max_session_tokens = _resolve(max_session_tokens, "max_session_tokens", None)
+        self.max_prompt_tokens = _resolve(max_prompt_tokens, "max_prompt_tokens", None)
+        self._session_tokens_used = 0
+
+        plugin_guardrails, plugin_verifiers = load_plugins(plugins)
+        self.guardrails = (guardrails or []) + plugin_guardrails
         self.memory = memory or MemoryStore()
-        self.metrics = metrics or global_metrics
-        self.verifier = verifier or Verifier()
+
+        resolved_metrics_path = _resolve(metrics_path, "metrics_path", None)
+        if metrics is not None:
+            self.metrics = metrics
+        elif resolved_metrics_path:
+            self.metrics = MetricsCollector(auto_save_path=resolved_metrics_path)
+        else:
+            self.metrics = global_metrics
+
+        if verifier is not None:
+            self.verifier = verifier
+        elif plugin_verifiers:
+            self.verifier = plugin_verifiers[0]
+        else:
+            self.verifier = Verifier()
         self.tokenizer = _get_tokenizer(self.model)
 
         # Provider selection. Explicit argument wins, then env/config default.
@@ -177,56 +205,96 @@ class RivotrilAgent:
             kwargs["timeout"] = self.request_timeout
         return kwargs
 
-    def _execute_structured(self, messages: list[Any], response_model: type[BaseModel]) -> Any:
+    def _count_tokens(self, text: str) -> int:
+        return len(self.tokenizer.encode(text))
+
+    def _check_token_budget(self, prompt: str) -> int:
+        """Return token count for the prompt; raise if budget is exceeded."""
+        prompt_tokens = self._count_tokens(prompt)
+        if self.system_prompt:
+            prompt_tokens += self._count_tokens(self.system_prompt)
+
+        if self.max_prompt_tokens is not None and prompt_tokens > self.max_prompt_tokens:
+            raise TokenBudgetExceededError(
+                f"Prompt exceeds max_prompt_tokens limit "
+                f"({prompt_tokens} > {self.max_prompt_tokens})"
+            )
+
+        projected = self._session_tokens_used + prompt_tokens
+        if self.max_session_tokens is not None and projected > self.max_session_tokens:
+            raise TokenBudgetExceededError(
+                f"Run would exceed max_session_tokens limit "
+                f"({projected} > {self.max_session_tokens})"
+            )
+
+        return prompt_tokens
+
+    def _execute_structured(
+        self, messages: list[Any], response_model: type[BaseModel], tools: list[Any] | None
+    ) -> Any:
         response = self.provider.complete(
             model=self.model,
             response_model=response_model,
             messages=messages,
+            tools=tools,
             **self._llm_call_kwargs(),
         )
-        return response.structured
+        return response
 
-    def _execute_unstructured(self, messages: list[Any]) -> Any:
+    def _execute_unstructured(self, messages: list[Any], tools: list[Any] | None) -> Any:
         response = self.provider.complete(
             model=self.model,
             messages=messages,
+            tools=tools,
             **self._llm_call_kwargs(),
         )
-        return response.text
+        return response
 
     async def _execute_structured_async(
-        self, messages: list[Any], response_model: type[BaseModel]
+        self, messages: list[Any], response_model: type[BaseModel], tools: list[Any] | None
     ) -> Any:
         response = await self.provider.acomplete(
             model=self.model,
             response_model=response_model,
             messages=messages,
+            tools=tools,
             **self._llm_call_kwargs(),
         )
-        return response.structured
+        return response
 
-    async def _execute_unstructured_async(self, messages: list[Any]) -> Any:
+    async def _execute_unstructured_async(
+        self, messages: list[Any], tools: list[Any] | None
+    ) -> Any:
         response = await self.provider.acomplete(
             model=self.model,
             messages=messages,
+            tools=tools,
             **self._llm_call_kwargs(),
         )
-        return response.text
+        return response
 
-    def _call_llm(self, messages: list[Any], response_model: type[BaseModel] | None) -> Any:
+    def _call_llm(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None,
+        tools: list[Any] | None = None,
+    ) -> Any:
         if self.rate_limiter is not None:
             self.rate_limiter.acquire()
 
         @self._retry_decorator
         def _call() -> Any:
             if response_model is not None:
-                return self._execute_structured(messages, response_model)
-            return self._execute_unstructured(messages)
+                return self._execute_structured(messages, response_model, tools)
+            return self._execute_unstructured(messages, tools)
 
         return self.circuit_breaker.call(_call)
 
     async def _call_llm_async(
-        self, messages: list[Any], response_model: type[BaseModel] | None
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None,
+        tools: list[Any] | None = None,
     ) -> Any:
         if self.async_rate_limiter is not None:
             await self.async_rate_limiter.acquire()
@@ -234,16 +302,73 @@ class RivotrilAgent:
         @self._retry_decorator
         async def _call() -> Any:
             if response_model is not None:
-                return await self._execute_structured_async(messages, response_model)
-            return await self._execute_unstructured_async(messages)
+                return await self._execute_structured_async(messages, response_model, tools)
+            return await self._execute_unstructured_async(messages, tools)
 
         return await self.circuit_breaker.call_async(_call)
+
+    def _handle_tool_calls(
+        self,
+        response: Any,
+        messages: list[Any],
+        tool_registry: ToolRegistry,
+        max_rounds: int = 5,
+    ) -> Any:
+        """Execute tool calls requested by the model and return the final response."""
+        for _ in range(max_rounds):
+            calls = normalize_tool_calls(response)
+            if not calls:
+                break
+
+            for call in calls:
+                result = tool_registry.execute(call)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "content": result,
+                    }
+                )
+
+            response = self._call_llm(messages, None, tools=None)
+
+        return response
+
+    async def _handle_tool_calls_async(
+        self,
+        response: Any,
+        messages: list[Any],
+        tool_registry: ToolRegistry,
+        max_rounds: int = 5,
+    ) -> Any:
+        """Async version of :meth:`_handle_tool_calls`."""
+        for _ in range(max_rounds):
+            calls = normalize_tool_calls(response)
+            if not calls:
+                break
+
+            for call in calls:
+                result = tool_registry.execute(call)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "content": result,
+                    }
+                )
+
+            response = await self._call_llm_async(messages, None, tools=None)
+
+        return response
 
     def run(
         self,
         prompt: str,
         response_model: type[BaseModel] | None = None,
         context_sources: ContextSources = None,
+        tools: list[Any] | str | None = None,
     ) -> Any:
         start_time = time.time()
         guardrail_blocked = False
@@ -251,25 +376,34 @@ class RivotrilAgent:
         error_msg: str | None = None
         response_text = ""
         response: Any = None
-        tokens = len(self.tokenizer.encode(prompt))
-        if self.system_prompt:
-            tokens += len(self.tokenizer.encode(self.system_prompt))
+        tokens = self._check_token_budget(prompt)
+        tool_registry = ToolRegistry(tools) if tools is not None else None
 
         logger.debug("Starting agent.run")
         try:
             self._run_preflight(prompt)
             messages = self._build_messages(prompt)
-            response = self._call_llm(messages, response_model)
+            response = self._call_llm(
+                messages, response_model, tools=tool_registry.schemas if tool_registry else None
+            )
+
+            if tool_registry is not None and response_model is None:
+                response = self._handle_tool_calls(response, messages, tool_registry)
 
             if response_model is not None:
-                response_text = response.model_dump_json()
-            else:
+                response_text = response.structured.model_dump_json()
+            elif isinstance(response, str):
                 response_text = response
+            else:
+                response_text = response.text
 
             tokens += len(self.tokenizer.encode(response_text))
-            result = self._run_post_generation(prompt, response_text, response, context_sources)
+            self._session_tokens_used += tokens
+            self._run_post_generation(prompt, response_text, response, context_sources)
             logger.info("Agent run completed successfully")
-            return result
+            if response_model is not None:
+                return response.structured
+            return response_text
 
         except ValidationError as exc:
             guardrail_blocked = True
@@ -309,6 +443,7 @@ class RivotrilAgent:
         prompt: str,
         response_model: type[BaseModel] | None = None,
         context_sources: ContextSources = None,
+        tools: list[Any] | str | None = None,
     ) -> Any:
         start_time = time.time()
         guardrail_blocked = False
@@ -316,25 +451,34 @@ class RivotrilAgent:
         error_msg: str | None = None
         response_text = ""
         response: Any = None
-        tokens = len(self.tokenizer.encode(prompt))
-        if self.system_prompt:
-            tokens += len(self.tokenizer.encode(self.system_prompt))
+        tokens = self._check_token_budget(prompt)
+        tool_registry = ToolRegistry(tools) if tools is not None else None
 
         logger.debug("Starting agent.run_async")
         try:
             self._run_preflight(prompt)
             messages = self._build_messages(prompt)
-            response = await self._call_llm_async(messages, response_model)
+            response = await self._call_llm_async(
+                messages, response_model, tools=tool_registry.schemas if tool_registry else None
+            )
+
+            if tool_registry is not None and response_model is None:
+                response = await self._handle_tool_calls_async(response, messages, tool_registry)
 
             if response_model is not None:
-                response_text = response.model_dump_json()
-            else:
+                response_text = response.structured.model_dump_json()
+            elif isinstance(response, str):
                 response_text = response
+            else:
+                response_text = response.text
 
             tokens += len(self.tokenizer.encode(response_text))
-            result = self._run_post_generation(prompt, response_text, response, context_sources)
+            self._session_tokens_used += tokens
+            self._run_post_generation(prompt, response_text, response, context_sources)
             logger.info("Agent async run completed successfully")
-            return result
+            if response_model is not None:
+                return response.structured
+            return response_text
 
         except ValidationError as exc:
             guardrail_blocked = True
@@ -419,9 +563,7 @@ class RivotrilAgent:
         hallucination_blocked = False
         error_msg: str | None = None
         response_text = ""
-        tokens = len(self.tokenizer.encode(prompt))
-        if self.system_prompt:
-            tokens += len(self.tokenizer.encode(self.system_prompt))
+        tokens = self._check_token_budget(prompt)
 
         logger.debug("Starting agent.run_stream")
         try:
@@ -433,6 +575,7 @@ class RivotrilAgent:
                 yield chunk
 
             tokens += len(self.tokenizer.encode(response_text))
+            self._session_tokens_used += tokens
             self._run_post_generation(prompt, response_text, response_text, context_sources)
             logger.info("Agent stream completed successfully")
 
@@ -473,9 +616,7 @@ class RivotrilAgent:
         hallucination_blocked = False
         error_msg: str | None = None
         response_text = ""
-        tokens = len(self.tokenizer.encode(prompt))
-        if self.system_prompt:
-            tokens += len(self.tokenizer.encode(self.system_prompt))
+        tokens = self._check_token_budget(prompt)
 
         logger.debug("Starting agent.run_stream_async")
         try:
@@ -487,6 +628,7 @@ class RivotrilAgent:
                 yield chunk
 
             tokens += len(self.tokenizer.encode(response_text))
+            self._session_tokens_used += tokens
             self._run_post_generation(prompt, response_text, response_text, context_sources)
             logger.info("Agent async stream completed successfully")
 

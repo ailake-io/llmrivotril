@@ -8,3 +8,7 @@ class GuardrailViolationError(LLMRivotrilError):
 
 class HallucinationDetectedError(LLMRivotrilError):
     """Raised when verification layers catch ungrounded output."""
+
+
+class TokenBudgetExceededError(LLMRivotrilError):
+    """Raised when a run would exceed the configured token budget."""
