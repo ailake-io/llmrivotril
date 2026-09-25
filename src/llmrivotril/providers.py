@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -72,6 +73,32 @@ class BaseProvider(ABC):
         **kwargs: Any,
     ) -> Awaitable[ProviderResponse]:
         """Run an asynchronous chat completion."""
+
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> Any:
+        """Run a synchronous streaming chat completion.
+
+        Returns an iterator of text chunks. Providers that do not support
+        streaming should raise ``NotImplementedError``.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support streaming")
+
+    def astream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        """Run an asynchronous streaming chat completion.
+
+        Returns an async iterator of text chunks. Providers that do not support
+        streaming should raise ``NotImplementedError``.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support async streaming")
 
     def _messages_to_prompt(self, messages: list[dict[str, Any]]) -> str:
         """Flatten message list into a single prompt string for non-chat APIs."""
@@ -177,6 +204,30 @@ class OpenAIProvider(BaseProvider):
             model=model, messages=messages, **kwargs
         )
         return ProviderResponse(content=completion.choices[0].message.content)
+
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> Any:
+        stream_kwargs = {**kwargs, "stream": True}
+        return self._get_base_client().chat.completions.create(
+            model=model, messages=messages, **stream_kwargs
+        )
+
+    async def astream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        stream_kwargs = {**kwargs, "stream": True}
+        stream = await self._get_async_base_client().chat.completions.create(
+            model=model, messages=messages, **stream_kwargs
+        )
+        async for chunk in stream:
+            yield chunk
 
 
 class AnthropicProvider(BaseProvider):

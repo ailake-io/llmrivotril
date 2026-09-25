@@ -12,7 +12,7 @@ from .providers import (
 )
 from .rag import Document, RAGPipeline
 from .rag.chunkers import SimpleChunker
-from .rag.loaders import MarkdownLoader, TextLoader
+from .rag.loaders import CSVLoader, HTMLLoader, MarkdownLoader, PDFLoader, TextLoader
 from .rag.retrievers import InMemoryEmbeddingRetriever, InMemoryKeywordRetriever
 from .semantic import EmbeddingFaithfulnessVerifier, SemanticTopicGuardrail
 from .verifier import ModelBasedFaithfulnessVerifier
@@ -32,6 +32,9 @@ __all__ = [
     "RAGPipeline",
     "TextLoader",
     "MarkdownLoader",
+    "HTMLLoader",
+    "CSVLoader",
+    "PDFLoader",
     "SimpleChunker",
     "InMemoryKeywordRetriever",
     "InMemoryEmbeddingRetriever",

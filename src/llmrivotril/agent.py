@@ -1,5 +1,6 @@
 import logging
 import time
+from collections.abc import AsyncIterator, Iterator
 from typing import Any, cast
 
 import tiktoken
@@ -355,6 +356,153 @@ class RivotrilAgent:
         except Exception as exc:
             error_msg = str(exc)
             logger.exception("Agent async run failed with unexpected error")
+            raise
+        finally:
+            latency = time.time() - start_time
+            self.metrics.log_execution(
+                prompt=prompt,
+                response=response_text if response_text else "N/A",
+                tokens=tokens,
+                latency=latency,
+                guardrail_blocked=guardrail_blocked,
+                hallucination_blocked=hallucination_blocked,
+                error=error_msg,
+            )
+
+    def _stream_chunks(self, messages: list[Any]) -> Iterator[str]:
+        """Yield text chunks from the provider's synchronous stream."""
+        stream = self.provider.stream(
+            model=self.model,
+            messages=messages,
+            **self._llm_call_kwargs(),
+        )
+        for chunk in stream:
+            if isinstance(chunk, str):
+                yield chunk
+                continue
+            content = ""
+            if chunk.choices and chunk.choices[0].delta:
+                content = chunk.choices[0].delta.content or ""
+            if content:
+                yield content
+
+    async def _astream_chunks(self, messages: list[Any]) -> AsyncIterator[str]:
+        """Yield text chunks from the provider's asynchronous stream."""
+        async for chunk in self.provider.astream(
+            model=self.model,
+            messages=messages,
+            **self._llm_call_kwargs(),
+        ):
+            if isinstance(chunk, str):
+                yield chunk
+                continue
+            content = ""
+            if chunk.choices and chunk.choices[0].delta:
+                content = chunk.choices[0].delta.content or ""
+            if content:
+                yield content
+
+    def run_stream(
+        self,
+        prompt: str,
+        context_sources: ContextSources = None,
+    ) -> Iterator[str]:
+        """Run preflight checks and stream the response chunk by chunk.
+
+        Input guardrails are applied before generation. Output guardrails,
+        grounding verification, and memory update are applied to the full
+        response after the stream ends. Raises the same exceptions as ``run``
+        when safety checks fail.
+        """
+        start_time = time.time()
+        guardrail_blocked = False
+        hallucination_blocked = False
+        error_msg: str | None = None
+        response_text = ""
+        tokens = len(self.tokenizer.encode(prompt))
+        if self.system_prompt:
+            tokens += len(self.tokenizer.encode(self.system_prompt))
+
+        logger.debug("Starting agent.run_stream")
+        try:
+            self._run_preflight(prompt)
+            messages = self._build_messages(prompt)
+
+            for chunk in self._stream_chunks(messages):
+                response_text += chunk
+                yield chunk
+
+            tokens += len(self.tokenizer.encode(response_text))
+            self._run_post_generation(prompt, response_text, response_text, context_sources)
+            logger.info("Agent stream completed successfully")
+
+        except GuardrailViolationError as exc:
+            guardrail_blocked = True
+            error_msg = str(exc)
+            logger.warning("Guardrail violation: %s", exc)
+            raise
+        except HallucinationDetectedError as exc:
+            hallucination_blocked = True
+            error_msg = str(exc)
+            logger.warning("Hallucination detected: %s", exc)
+            raise
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.exception("Agent stream failed with unexpected error")
+            raise
+        finally:
+            latency = time.time() - start_time
+            self.metrics.log_execution(
+                prompt=prompt,
+                response=response_text if response_text else "N/A",
+                tokens=tokens,
+                latency=latency,
+                guardrail_blocked=guardrail_blocked,
+                hallucination_blocked=hallucination_blocked,
+                error=error_msg,
+            )
+
+    async def run_stream_async(
+        self,
+        prompt: str,
+        context_sources: ContextSources = None,
+    ) -> AsyncIterator[str]:
+        """Async version of :meth:`run_stream`."""
+        start_time = time.time()
+        guardrail_blocked = False
+        hallucination_blocked = False
+        error_msg: str | None = None
+        response_text = ""
+        tokens = len(self.tokenizer.encode(prompt))
+        if self.system_prompt:
+            tokens += len(self.tokenizer.encode(self.system_prompt))
+
+        logger.debug("Starting agent.run_stream_async")
+        try:
+            self._run_preflight(prompt)
+            messages = self._build_messages(prompt)
+
+            async for chunk in self._astream_chunks(messages):
+                response_text += chunk
+                yield chunk
+
+            tokens += len(self.tokenizer.encode(response_text))
+            self._run_post_generation(prompt, response_text, response_text, context_sources)
+            logger.info("Agent async stream completed successfully")
+
+        except GuardrailViolationError as exc:
+            guardrail_blocked = True
+            error_msg = str(exc)
+            logger.warning("Guardrail violation: %s", exc)
+            raise
+        except HallucinationDetectedError as exc:
+            hallucination_blocked = True
+            error_msg = str(exc)
+            logger.warning("Hallucination detected: %s", exc)
+            raise
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.exception("Agent async stream failed with unexpected error")
             raise
         finally:
             latency = time.time() - start_time

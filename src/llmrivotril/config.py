@@ -6,15 +6,19 @@ values read from configuration files.
 
 Supported configuration sources, in ascending order of precedence:
 
-1. ``pyproject.toml`` section ``[tool.llmrivotril]``
-2. ``llmrivotril.toml`` in the current working directory
-3. File pointed to by ``RIVOTRIL_CONFIG_FILE``
-4. Environment variables prefixed with ``RIVOTRIL_``
-5. Explicit constructor arguments to ``RivotrilAgent``
+1. ``.env`` file in the current working directory
+2. ``pyproject.toml`` section ``[tool.llmrivotril]``
+3. ``llmrivotril.toml`` in the current working directory
+4. File pointed to by ``RIVOTRIL_CONFIG_FILE``
+5. Environment variables prefixed with ``RIVOTRIL_``
+6. Explicit constructor arguments to ``RivotrilAgent``
 """
 
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger("llmrivotril")
 
 try:
     import tomllib
@@ -197,12 +201,30 @@ def load_env_config() -> dict[str, object]:
     return config
 
 
+def _load_dotenv() -> None:
+    """Load a local ``.env`` file if ``python-dotenv`` is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+
+    env_path = Path.cwd() / ".env"
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
+
+
 def load_config() -> dict[str, object]:
     """Merge file and environment configuration.
 
     Precedence: file < environment.
     """
+    _load_dotenv()
     file_config = load_file_config()
+    if "api_key" in file_config:
+        logger.warning(
+            "Reading API key from %s. Consider using environment variables or a secret manager.",
+            _find_config_file(),
+        )
     env_config = load_env_config()
     merged: dict[str, object] = dict(file_config)
     merged.update(env_config)

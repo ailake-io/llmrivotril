@@ -57,6 +57,54 @@ def health_check() -> dict[str, Any]:
     }
 
 
+def _format_prometheus_line(name: str, value: float | int, help_text: str, type_: str) -> str:
+    return f"# HELP {name} {help_text}\n# TYPE {name} {type_}\n{name} {value}\n"
+
+
+@app.get("/api/metrics/prometheus", dependencies=[Depends(_verify_dashboard_token)])
+def get_prometheus_metrics() -> str:
+    """Return telemetry in Prometheus exposition format."""
+    summary = global_metrics.get_summary()
+    output = ""
+    output += _format_prometheus_line(
+        "llmrivotril_requests_total",
+        summary["requests_total"],
+        "Total number of agent runs",
+        "counter",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_guardrail_blocks_total",
+        summary["guardrail_blocks"],
+        "Total number of requests blocked by guardrails",
+        "counter",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_hallucinations_detected_total",
+        summary["hallucinations_detected"],
+        "Total number of responses blocked by grounding verification",
+        "counter",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_tokens_consumed_total",
+        summary["total_tokens_consumed"],
+        "Total tokens consumed across all requests",
+        "counter",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_success_rate",
+        summary["success_rate"],
+        "Percentage of successful requests",
+        "gauge",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_avg_latency_seconds",
+        summary["avg_latency"],
+        "Average latency in seconds",
+        "gauge",
+    )
+    return output
+
+
 def run_dashboard(host: str = "127.0.0.1", port: int = 8000) -> None:
     import uvicorn
 
