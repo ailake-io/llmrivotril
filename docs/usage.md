@@ -10,15 +10,18 @@
 6. [Configuring Guardrails](#configuring-guardrails)
 7. [Semantic Guardrails](#semantic-guardrails)
 8. [Using Memory](#using-memory)
-9. [Structured Output](#structured-output)
-10. [Grounding Verification](#grounding-verification)
-11. [RAG](#rag)
-12. [Resilience](#resilience)
-13. [Async Execution](#async-execution)
-14. [OpenAI-Compatible Servers](#openai-compatible-servers)
-15. [Running the Dashboard](#running-the-dashboard)
-16. [Benchmark](#benchmark)
-17. [Telemetry](#telemetry)
+   - [Persisting Memory](#persisting-memory)
+9. [Streaming](#streaming)
+10. [Structured Output](#structured-output)
+11. [Grounding Verification](#grounding-verification)
+12. [RAG](#rag)
+    - [Other Document Formats](#other-document-formats)
+13. [Resilience](#resilience)
+14. [Async Execution](#async-execution)
+15. [OpenAI-Compatible Servers](#openai-compatible-servers)
+16. [Running the Dashboard](#running-the-dashboard)
+17. [Benchmark](#benchmark)
+18. [Telemetry](#telemetry)
 
 ## Installation
 
@@ -64,6 +67,18 @@ export RIVOTRIL_RETRY_MAX_ATTEMPTS="5"
 from llmrivotril import RivotrilAgent
 
 agent = RivotrilAgent()  # reads every RIVOTRIL_* variable above
+```
+
+Environment variables are also read from a `.env` file in the working directory if `python-dotenv` is installed.
+
+```bash
+pip install python-dotenv
+```
+
+```text
+# .env
+RIVOTRIL_MODEL=gpt-4o-mini
+RIVOTRIL_API_KEY=sk-...
 ```
 
 Supported variables: `RIVOTRIL_MODEL`, `RIVOTRIL_API_KEY`, `RIVOTRIL_BASE_URL`, `RIVOTRIL_SYSTEM_PROMPT`, `RIVOTRIL_REQUEST_TIMEOUT`, `RIVOTRIL_RATE_LIMIT_MAX_CALLS`, `RIVOTRIL_RATE_LIMIT_PER_SECONDS`, `RIVOTRIL_RETRY_MAX_ATTEMPTS`, `RIVOTRIL_RETRY_MIN_WAIT`, `RIVOTRIL_RETRY_MAX_WAIT`, `RIVOTRIL_CIRCUIT_FAILURE_THRESHOLD`, `RIVOTRIL_CIRCUIT_RECOVERY_TIMEOUT`.
@@ -125,6 +140,34 @@ agent = RivotrilAgent(memory=memory)
 
 agent.run("My name is Alice.")
 agent.run("What is my name?")  # Uses conversation history
+```
+
+### Persisting Memory
+
+Save and restore conversation history across sessions:
+
+```python
+memory.save_to_json("conversation.json")
+
+restored = MemoryStore()
+restored.load_from_json("conversation.json")
+agent = RivotrilAgent(memory=restored)
+```
+
+## Streaming
+
+Stream response chunks while still applying output guardrails and grounding checks to the assembled response:
+
+```python
+for chunk in agent.run_stream("Tell me a story"):
+    print(chunk, end="", flush=True)
+```
+
+Async version:
+
+```python
+async for chunk in agent.run_stream_async("Tell me a story"):
+    print(chunk, end="", flush=True)
 ```
 
 ## Structured Output
@@ -234,6 +277,27 @@ from llmrivotril.rag.retrievers import InMemoryEmbeddingRetriever
 pipeline = RAGPipeline(retriever=InMemoryEmbeddingRetriever(model="all-MiniLM-L6-v2"))
 ```
 
+### Other Document Formats
+
+Install the RAG extras to load HTML, CSV and PDF files:
+
+```bash
+pip install llmrivotril[rag]
+```
+
+```python
+from llmrivotril.rag.loaders import CSVLoader, HTMLLoader, PDFLoader
+
+pipeline = RAGPipeline(loader=HTMLLoader())
+pipeline.ingest("site/")
+
+pipeline = RAGPipeline(loader=CSVLoader(text_columns=["title", "body"]))
+pipeline.ingest("data/")
+
+pipeline = RAGPipeline(loader=PDFLoader())
+pipeline.ingest("papers/")
+```
+
 ## Resilience
 
 Add rate limiting, retries with exponential backoff, and a circuit breaker to LLM
@@ -314,7 +378,7 @@ API endpoints:
 
 - `/api/metrics` — JSON telemetry summary
 - `/api/health` — Health check (`status`, `version`, `timestamp`)
-
+- `/api/metrics/prometheus` — Prometheus exposition format
 
 ### Dashboard Authentication
 

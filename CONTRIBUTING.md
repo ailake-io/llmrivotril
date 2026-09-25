@@ -16,6 +16,8 @@ Thank you for your interest in improving LLM-Rivotril!
    source .venv/bin/activate
    pip install -e ".[dev]"
    ```
+   For a lighter install that skips optional provider SDKs and semantic dependencies,
+   use `pip install -e ".[ci]"`.
 
 ## Development Workflow
 
@@ -30,8 +32,8 @@ Thank you for your interest in improving LLM-Rivotril!
    ```
 4. Run linting and type checks:
    ```bash
-   ruff check src tests
-   ruff format --check src tests
+   ruff check src tests examples scripts
+   ruff format --check src tests examples scripts
    mypy src
    ```
 5. Commit your changes and open a pull request.

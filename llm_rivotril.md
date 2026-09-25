@@ -26,17 +26,43 @@ llmrivotril/
 │       ├── server.py
 │       ├── cli.py
 │       ├── exceptions.py
-│       └── templates/
-│           └── dashboard.html
+│       ├── config.py
+│       ├── providers.py
+│       ├── resilience.py
+│       ├── semantic.py
+│       ├── scaffold.py
+│       ├── rag/
+│       │   ├── __init__.py
+│       │   ├── document.py
+│       │   ├── pipeline.py
+│       │   ├── chunkers.py
+│       │   ├── loaders.py
+│       │   └── retrievers.py
+│       ├── templates/
+│       │   └── dashboard.html
+│       └── static/
+│           └── tailwind.min.js
 ├── tests/
 │   ├── __init__.py
+│   ├── test_agent.py
+│   ├── test_cli.py
+│   ├── test_config.py
 │   ├── test_guardrails.py
 │   ├── test_memory.py
-│   ├── test_verifier.py
 │   ├── test_metrics.py
-│   └── test_agent.py
+│   ├── test_providers.py
+│   ├── test_rag.py
+│   ├── test_resilience.py
+│   ├── test_semantic.py
+│   ├── test_semantic_integration.py
+│   ├── test_server.py
+│   └── test_verifier.py
 ├── examples/
-│   └── basic_usage.py
+│   ├── basic_usage.py
+│   ├── comparison.py
+│   └── demo.py
+├── scripts/
+│   └── benchmark.py
 └── docs/
     └── usage.md
 ```
@@ -210,30 +236,47 @@ global_metrics = MetricsCollector()
 ### 3.3 Guardrails (`guardrails.py`)
 ```python
 import json
+import logging
+import re
+from typing import Any
 
 import tiktoken
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
 from .exceptions import GuardrailViolationError
+
+logger = logging.getLogger("llmrivotril")
 
 
 class Guardrail(BaseModel):
     name: str
     allowed_topics: list[str] = Field(default_factory=list)
     disallowed_keywords: list[str] = Field(default_factory=list)
+    disallowed_patterns: list[str] = Field(default_factory=list)
     max_tokens: int = 1000
     json_schema: type[BaseModel] | None = None
 
+    _encoding: Any | None = PrivateAttr(default=None)
+    _encoding_model: str | None = PrivateAttr(default=None)
+
+    def _get_encoding(self, model: str) -> Any:
+        if self._encoding is not None and self._encoding_model == model:
+            return self._encoding
+
+        try:
+            self._encoding = tiktoken.encoding_for_model(model)
+        except KeyError:
+            logger.warning("Unknown model %r for tiktoken; falling back to cl100k_base", model)
+            self._encoding = tiktoken.get_encoding("cl100k_base")
+        self._encoding_model = model
+        return self._encoding
+
     def validate_input(self, prompt: str) -> None:
-        prompt_lower = prompt.lower()
-        for kw in self.disallowed_keywords:
-            if kw.lower() in prompt_lower:
-                raise GuardrailViolationError(
-                    f"Input blocked by guardrail '{self.name}': Disallowed keyword -> '{kw}'"
-                )
+        self._check_disallowed_keywords(prompt, phase="input")
+        self._check_disallowed_patterns(prompt, phase="input")
 
         if self.allowed_topics:
-            self._validate_allowed_topics(prompt_lower)
+            self._validate_allowed_topics(prompt.lower())
 
     def _validate_allowed_topics(self, prompt_lower: str) -> None:
         for topic in self.allowed_topics:
@@ -245,8 +288,28 @@ class Guardrail(BaseModel):
             f"prompt does not match any allowed topic ({topics_list})"
         )
 
+    def _check_disallowed_keywords(self, text: str, phase: str) -> None:
+        text_lower = text.lower()
+        for kw in self.disallowed_keywords:
+            if kw.lower() in text_lower:
+                raise GuardrailViolationError(
+                    f"Output blocked by guardrail '{self.name}' during {phase}: "
+                    f"Disallowed keyword -> '{kw}'"
+                )
+
+    def _check_disallowed_patterns(self, text: str, phase: str) -> None:
+        for pattern in self.disallowed_patterns:
+            if re.search(pattern, text):
+                raise GuardrailViolationError(
+                    f"Output blocked by guardrail '{self.name}' during {phase}: "
+                    f"Disallowed pattern -> '{pattern}'"
+                )
+
     def validate_output(self, response_text: str, model: str = "gpt-4o-mini") -> None:
-        encoding = tiktoken.encoding_for_model(model)
+        self._check_disallowed_keywords(response_text, phase="output")
+        self._check_disallowed_patterns(response_text, phase="output")
+
+        encoding = self._get_encoding(model)
         token_count = len(encoding.encode(response_text))
         if token_count > self.max_tokens:
             raise GuardrailViolationError(
@@ -274,6 +337,11 @@ class Guardrail(BaseModel):
 
 ### 3.4 Memory Store (`memory.py`)
 ```python
+import json
+from pathlib import Path
+from typing import cast
+
+
 class MemoryStore:
     """Manages working memory and sliding windows to prevent context drift."""
 
@@ -291,6 +359,38 @@ class MemoryStore:
 
     def clear(self) -> None:
         self.history.clear()
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a serializable snapshot of the memory state."""
+        return {
+            "retention_window": self.retention_window,
+            "history": self.history.copy(),
+        }
+
+    def from_dict(self, data: dict[str, object]) -> None:
+        """Restore memory state from a dictionary."""
+        raw_retention_window = data.get("retention_window", 10)
+        if isinstance(raw_retention_window, int):
+            self.retention_window = raw_retention_window
+        else:
+            self.retention_window = int(cast("str | float", raw_retention_window))
+
+        history = data.get("history", [])
+        if isinstance(history, list):
+            self.history = [dict(turn) for turn in history if isinstance(turn, dict)]
+        else:
+            self.history = []
+
+    def save_to_json(self, path: str | Path) -> None:
+        """Persist the current conversation history to a JSON file."""
+        path = Path(path)
+        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+
+    def load_from_json(self, path: str | Path) -> None:
+        """Restore conversation history from a JSON file."""
+        path = Path(path)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.from_dict(data)
 ```
 
 ### 3.5 Anti-Hallucination Verifier (`verifier.py`)
@@ -793,6 +893,7 @@ Key design points:
 - Configuration is merged in the order **file < environment < constructor arguments** via `load_config()`.
 - `provider` can be a string (`"openai"`, `"anthropic"`, `"cohere"`, `"gemini"`) or an instance of `BaseProvider`.
 - Sync and async paths both use the provider abstraction; `run()` calls `provider.complete()` and `run_async()` calls `provider.acomplete()`.
+- Streaming is available through `run_stream()` / `run_stream_async()`; input guardrails run before generation, and output guardrails / grounding verification run on the assembled response after the stream ends.
 - Resilience is applied uniformly: rate limiter, retry decorator, and circuit breaker wrap `_call_llm` / `_call_llm_async`.
 - `context_sources` accepts a single string or a list of strings; lists are joined with blank lines before verification.
 
