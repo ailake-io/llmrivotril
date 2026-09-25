@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 from threading import Lock
@@ -11,7 +12,7 @@ class MetricsCollector:
     Tracks requests, tokens, guardrail blocks, and hallucinations.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, auto_save_path: str | Path | None = None) -> None:
         self._lock = Lock()
         self.requests_total = 0
         self.guardrail_blocks = 0
@@ -19,6 +20,7 @@ class MetricsCollector:
         self.total_tokens_consumed = 0
         self.latencies: list[float] = []
         self.logs: list[dict[str, Any]] = []
+        self.auto_save_path = auto_save_path
 
     def log_execution(
         self,
@@ -56,6 +58,8 @@ class MetricsCollector:
             # Keep history capped at 100 items
             if len(self.logs) > 100:
                 self.logs.pop()
+
+        self._maybe_auto_save()
 
     def reset(self) -> None:
         with self._lock:
@@ -106,9 +110,20 @@ class MetricsCollector:
             self.latencies = data.get("latencies", []).copy()
             self.logs = data.get("logs", []).copy()
 
+    def _maybe_auto_save(self) -> None:
+        """Persist state if an automatic save path is configured."""
+        path = self.auto_save_path
+        if path is None:
+            env_path = os.environ.get("RIVOTRIL_METRICS_PATH")
+            if env_path:
+                path = Path(env_path)
+        if path:
+            self.save_to_json(path)
+
     def save_to_json(self, path: str | Path) -> None:
         """Persist the current state to a JSON file."""
         path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
 
     def load_from_json(self, path: str | Path) -> None:
@@ -116,6 +131,10 @@ class MetricsCollector:
         path = Path(path)
         data = json.loads(path.read_text(encoding="utf-8"))
         self.from_dict(data)
+
+    def load_metrics(self, path: str | Path) -> None:
+        """Restore state from a JSON file (alias for ``load_from_json``)."""
+        self.load_from_json(path)
 
 
 # Global singleton metrics instance
