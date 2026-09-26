@@ -232,6 +232,87 @@ pip install llmrivotril[providers]
 
 Supported providers: `openai` (default), `anthropic`, `cohere`, `gemini`.
 
+## Token Budget
+
+Cap prompt and per-session token usage to avoid runaway costs:
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    max_prompt_tokens=2000,
+    max_session_tokens=10000,
+)
+```
+
+`max_prompt_tokens` rejects a single prompt that exceeds the limit.
+`max_session_tokens` tracks cumulative token use across runs on the same agent instance.
+Both raise `TokenBudgetExceededError` when exceeded.
+
+## Plugins
+
+Load guardrails and verifiers from installed packages via entry points:
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    plugins="auto",  # load every llmrivotril.guardrails / llmrivotril.verifiers entry point
+)
+```
+
+Or pass specific names and instances:
+
+```python
+from llmrivotril import Guardrail
+
+agent = RivotrilAgent(
+    plugins=["safe-input", Guardrail(name="short", max_tokens=100)],
+)
+```
+
+Package authors can register plugins in `pyproject.toml`:
+
+```toml
+[project.entry-points."llmrivotril.guardrails"]
+safe-input = "my_package.guardrails:make_guardrail"
+```
+
+## Function Calling
+
+Give the agent tools as callables or OpenAI-style schemas:
+
+```python
+from llmrivotril import RivotrilAgent
+
+def get_weather(city: str) -> str:
+    """Return the weather for a city."""
+    return f"Sunny in {city}."
+
+agent = RivotrilAgent(api_key="sk-...")
+response = agent.run("What is the weather in Paris?", tools=[get_weather])
+```
+
+The agent executes the requested tool call and returns the model's final answer.
+
+## Automatic Metrics Persistence
+
+Set `RIVOTRIL_METRICS_PATH` (or pass `metrics_path=`) to persist telemetry to JSON automatically:
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    metrics_path="metrics.json",
+)
+```
+
+Restore later with:
+
+```python
+from llmrivotril.metrics import MetricsCollector
+
+metrics = MetricsCollector()
+metrics.load_metrics("metrics.json")
+```
+
 ## Configuration Files
 
 In addition to environment variables, `RivotrilAgent` reads configuration files.
@@ -296,6 +377,9 @@ them at runtime and records structured telemetry.
 | `RIVOTRIL_RETRY_MAX_WAIT` | float | Maximum retry backoff in seconds. |
 | `RIVOTRIL_CIRCUIT_FAILURE_THRESHOLD` | int | Failures before the circuit opens. |
 | `RIVOTRIL_CIRCUIT_RECOVERY_TIMEOUT` | float | Seconds before the circuit tries again. |
+| `RIVOTRIL_MAX_PROMPT_TOKENS` | int | Reject prompts above this token count. |
+| `RIVOTRIL_MAX_SESSION_TOKENS` | int | Reject runs that would exceed this cumulative budget. |
+| `RIVOTRIL_METRICS_PATH` | string | Persist metrics to this JSON file automatically. |
 | `RIVOTRIL_DASHBOARD_TOKEN` | string | When set, dashboard routes require `Authorization: Bearer <token>`. |
 
 Example:

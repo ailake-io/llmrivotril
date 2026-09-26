@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Token budget controls on `RivotrilAgent`:
+  - `max_prompt_tokens` and `max_session_tokens` constructor arguments.
+  - `RIVOTRIL_MAX_PROMPT_TOKENS` and `RIVOTRIL_MAX_SESSION_TOKENS` environment variables.
+  - `TokenBudgetExceededError` raised when a run would exceed the configured budget.
+- Plugin system via Python entry points:
+  - Groups `llmrivotril.guardrails` and `llmrivotril.verifiers`.
+  - `plugins="auto"` or `plugins=[...]` on `RivotrilAgent`.
+  - `discover_plugins()` and `load_plugins()` helpers exported from the top-level package.
+- Automatic metrics persistence:
+  - `RIVOTRIL_METRICS_PATH` environment variable and `metrics_path=` argument on `RivotrilAgent`.
+  - `MetricsCollector.load_metrics()` alias for `load_from_json()`.
+- Function calling / tools support:
+  - `tools=` argument on `agent.run()` and `agent.run_async()`.
+  - `ToolRegistry` and `ToolCall` exported from the top-level package.
+  - Accepts OpenAI-style tool dicts or plain Python callables (auto-introspected into schemas).
+  - Built-in tool-call loop with follow-up completion.
 - Offline dashboard: Tailwind CSS is now bundled and served locally instead of loaded from CDN.
 - File-based configuration via `llmrivotril.toml`, `llmrivotril.yaml`, or `[tool.llmrivotril]` in `pyproject.toml`.
   - Precedence: file defaults < environment variables < constructor arguments.

@@ -15,13 +15,17 @@
 10. [Structured Output](#structured-output)
 11. [Grounding Verification](#grounding-verification)
 12. [RAG](#rag)
-    - [Other Document Formats](#other-document-formats)
+    - [Other DocumentFormats](#other-document-formats)
 13. [Resilience](#resilience)
-14. [Async Execution](#async-execution)
-15. [OpenAI-Compatible Servers](#openai-compatible-servers)
-16. [Running the Dashboard](#running-the-dashboard)
-17. [Benchmark](#benchmark)
-18. [Telemetry](#telemetry)
+14. [Token Budget](#token-budget)
+15. [Plugins](#plugins)
+16. [Function Calling](#function-calling)
+17. [Async Execution](#async-execution)
+18. [OpenAI-Compatible Servers](#openai-compatible-servers)
+19. [Running the Dashboard](#running-the-dashboard)
+20. [Benchmark](#benchmark)
+21. [Telemetry](#telemetry)
+22. [Automatic Metrics Persistence](#automatic-metrics-persistence)
 
 ## Installation
 
@@ -315,6 +319,80 @@ agent = RivotrilAgent(
 )
 ```
 
+## Token Budget
+
+Cap prompt size and cumulative session token use to avoid runaway costs:
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    max_prompt_tokens=2000,
+    max_session_tokens=10000,
+)
+```
+
+- `max_prompt_tokens` rejects a single prompt that would exceed the limit.
+- `max_session_tokens` tracks token use across all runs on the same agent instance and rejects runs that would exceed it.
+- Both raise `llmrivotril.TokenBudgetExceededError`.
+
+Environment variables: `RIVOTRIL_MAX_PROMPT_TOKENS`, `RIVOTRIL_MAX_SESSION_TOKENS`.
+
+## Plugins
+
+Load guardrails and verifiers from installed packages via entry points:
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    plugins="auto",  # load every discovered plugin
+)
+```
+
+Pass specific entry-point names, instances, or classes:
+
+```python
+from llmrivotril import Guardrail
+from llmrivotril.verifier import KeywordOverlapVerifier
+
+agent = RivotrilAgent(
+    plugins=[
+        "safe-input",                         # entry-point name
+        Guardrail(name="short", max_tokens=100),
+        KeywordOverlapVerifier(threshold=0.1),  # verifier instance
+    ],
+)
+```
+
+Plugin packages register entry points in `pyproject.toml`:
+
+```toml
+[project.entry-points."llmrivotril.guardrails"]
+safe-input = "my_package.guardrails:create_guardrail"
+
+[project.entry-points."llmrivotril.verifiers"]
+my-verifier = "my_package.verifiers:my_verifier_callable"
+```
+
+## Function Calling
+
+Give the agent tools as plain callables or OpenAI-style schemas:
+
+```python
+from llmrivotril import RivotrilAgent
+
+def get_weather(city: str) -> str:
+    """Return the current weather for a city."""
+    return f"Sunny in {city}."
+
+agent = RivotrilAgent(api_key="sk-...")
+response = agent.run("What is the weather in Paris?", tools=[get_weather])
+print(response)
+```
+
+Plain callables are introspected into OpenAI function schemas using their type annotations and docstrings. You can also pass OpenAI-style dicts directly.
+
+The agent runs the requested tool call and makes a follow-up completion with the result before returning the final answer.
+
 ## Async Execution
 
 ```python
@@ -428,4 +506,25 @@ Access it programmatically:
 from llmrivotril.metrics import global_metrics
 
 print(global_metrics.get_summary())
+```
+
+## Automatic Metrics Persistence
+
+Set `RIVOTRIL_METRICS_PATH` or pass `metrics_path=` to persist telemetry to JSON automatically on every run:
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    metrics_path="metrics.json",
+)
+```
+
+Restore a saved snapshot later:
+
+```python
+from llmrivotril.metrics import MetricsCollector
+
+metrics = MetricsCollector()
+metrics.load_metrics("metrics.json")
+print(metrics.get_summary())
 ```
