@@ -311,3 +311,116 @@ def test_agent_tracks_session_tokens_across_runs():
 
     agent.run("hello again")
     assert agent._session_tokens_used > first_session
+
+
+def test_agent_uses_in_memory_cache():
+    from llmrivotril import InMemoryCache
+
+    cache = InMemoryCache()
+    agent, provider = _make_agent(cache=cache)
+    provider._complete_mock.return_value = ProviderResponse(content="cached")
+
+    result1 = agent.run("hi")
+    agent.memory.clear()
+    result2 = agent.run("hi")
+
+    assert result1 == "cached"
+    assert result2 == "cached"
+    assert provider._complete_mock.call_count == 1
+
+
+def test_agent_uses_disk_cache_via_env(tmp_path, monkeypatch):
+    cache_path = tmp_path / "agent-cache.pkl"
+    monkeypatch.setenv("RIVOTRIL_CACHE_PATH", str(cache_path))
+
+    agent, provider = _make_agent()
+    provider._complete_mock.return_value = ProviderResponse(content="disk")
+
+    agent.run("hi")
+    assert provider._complete_mock.call_count == 1
+    assert cache_path.exists()
+
+    agent2, provider2 = _make_agent()
+    provider2._complete_mock.return_value = ProviderResponse(content="other")
+    result2 = agent2.run("hi")
+
+    assert result2 == "disk"
+    assert provider2._complete_mock.call_count == 0
+
+
+def test_agent_tracks_cost_when_enabled():
+    from llmrivotril.metrics import MetricsCollector
+    from llmrivotril.pricing import register_pricing
+
+    register_pricing("mock", "gpt-4o-mini", 0.15, 0.60)
+
+    metrics = MetricsCollector()
+    agent, provider = _make_agent(model="gpt-4o-mini", track_costs=True, metrics=metrics)
+    provider._complete_mock.return_value = ProviderResponse(
+        content="ok",
+        prompt_tokens=1000,
+        completion_tokens=500,
+    )
+
+    agent.run("hi")
+
+    assert metrics.total_cost_usd is not None
+    assert metrics.total_cost_usd > 0
+
+
+def test_agent_does_not_track_cost_by_default():
+    from llmrivotril.metrics import MetricsCollector
+
+    metrics = MetricsCollector()
+    agent, provider = _make_agent(model="gpt-4o-mini", metrics=metrics)
+    provider._complete_mock.return_value = ProviderResponse(content="ok")
+
+    agent.run("hi")
+
+    assert metrics.total_cost_usd is None
+
+
+def test_agent_repairs_invalid_structured_response():
+    agent, provider = _make_agent(schema_repair_attempts=2)
+
+    class BrokenResponse(BaseModel):
+        answer: str
+
+    provider._complete_mock.side_effect = [
+        ProviderResponse(content='{"answer": 123}'),
+        ProviderResponse(content='{"answer": "good"}'),
+    ]
+
+    result = agent.run("question", response_model=BrokenResponse)
+
+    assert isinstance(result, BrokenResponse)
+    assert result.answer == "good"
+    assert provider._complete_mock.call_count == 2
+
+
+def test_agent_schema_repair_gives_up():
+    agent, provider = _make_agent(schema_repair_attempts=1)
+
+    class BrokenResponse(BaseModel):
+        answer: str
+
+    provider._complete_mock.return_value = ProviderResponse(content='{"answer": 123}')
+
+    with pytest.raises(GuardrailViolationError):
+        agent.run("question", response_model=BrokenResponse)
+
+    assert provider._complete_mock.call_count == 2  # initial + 1 repair attempt
+
+
+def test_agent_redacts_pii_in_input_and_output():
+    agent, provider = _make_agent(redact_pii=True)
+    provider._complete_mock.return_value = ProviderResponse(
+        content="User email is john@example.com"
+    )
+
+    result = agent.run("My email is john@example.com")
+
+    assert "john@example.com" not in result
+    assert "[REDACTED]" in result
+    # Memory should also be redacted
+    assert "john@example.com" not in str(agent.memory.get_context())

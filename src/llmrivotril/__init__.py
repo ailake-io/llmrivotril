@@ -1,4 +1,5 @@
 from .agent import RivotrilAgent
+from .cache import BaseCache, DiskCache, InMemoryCache
 from .exceptions import (
     GuardrailViolationError,
     HallucinationDetectedError,
@@ -7,7 +8,9 @@ from .exceptions import (
 )
 from .guardrails import Guardrail
 from .memory import MemoryStore
+from .pii import PIIRedactor
 from .plugins import discover_plugins, load_plugins
+from .pricing import estimate_cost, list_supported_models, register_pricing
 from .providers import (
     AnthropicProvider,
     BaseProvider,
@@ -29,12 +32,19 @@ __all__ = [
     "RivotrilAgent",
     "Guardrail",
     "MemoryStore",
+    "BaseCache",
+    "InMemoryCache",
+    "DiskCache",
+    "PIIRedactor",
     "LLMRivotrilError",
     "GuardrailViolationError",
     "HallucinationDetectedError",
     "TokenBudgetExceededError",
     "discover_plugins",
     "load_plugins",
+    "estimate_cost",
+    "register_pricing",
+    "list_supported_models",
     "ToolRegistry",
     "ToolCall",
     "SemanticTopicGuardrail",

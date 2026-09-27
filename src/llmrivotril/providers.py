@@ -33,11 +33,15 @@ class ProviderResponse:
         structured: BaseModel | None = None,
         tool_calls: Any | None = None,
         raw_response: Any | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
     ) -> None:
         self.content = content
         self.structured = structured
         self.tool_calls = tool_calls
         self.raw_response = raw_response
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
 
     @property
     def text(self) -> str:
@@ -179,6 +183,16 @@ class OpenAIProvider(BaseProvider):
             self._async_client = instructor.from_openai(self._get_async_base_client())
         return self._async_client
 
+    def _extract_usage(self, response: Any) -> tuple[int | None, int | None]:
+        """Extract prompt/completion token counts from a provider response."""
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None, None
+        return (
+            getattr(usage, "prompt_tokens", None),
+            getattr(usage, "completion_tokens", None),
+        )
+
     def complete(
         self,
         messages: list[dict[str, Any]],
@@ -196,16 +210,26 @@ class OpenAIProvider(BaseProvider):
             result = self._get_client().chat.completions.create(
                 model=model, response_model=response_model, messages=messages, **create_kwargs
             )
-            return ProviderResponse(structured=result)
+            raw = getattr(result, "_raw_response", result)
+            prompt_tokens, completion_tokens = self._extract_usage(raw)
+            return ProviderResponse(
+                structured=result,
+                raw_response=raw,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
 
         completion = self._get_base_client().chat.completions.create(
             model=model, messages=messages, **create_kwargs
         )
         message = completion.choices[0].message
+        prompt_tokens, completion_tokens = self._extract_usage(completion)
         return ProviderResponse(
             content=message.content,
             tool_calls=getattr(message, "tool_calls", None),
             raw_response=completion,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
 
     async def acomplete(
@@ -225,16 +249,26 @@ class OpenAIProvider(BaseProvider):
             result = await self._get_async_client().chat.completions.create(
                 model=model, response_model=response_model, messages=messages, **create_kwargs
             )
-            return ProviderResponse(structured=result)
+            raw = getattr(result, "_raw_response", result)
+            prompt_tokens, completion_tokens = self._extract_usage(raw)
+            return ProviderResponse(
+                structured=result,
+                raw_response=raw,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
 
         completion = await self._get_async_base_client().chat.completions.create(
             model=model, messages=messages, **create_kwargs
         )
         message = completion.choices[0].message
+        prompt_tokens, completion_tokens = self._extract_usage(completion)
         return ProviderResponse(
             content=message.content,
             tool_calls=getattr(message, "tool_calls", None),
             raw_response=completion,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
 
     def stream(

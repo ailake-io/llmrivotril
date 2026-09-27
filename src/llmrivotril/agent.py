@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -6,6 +7,7 @@ from typing import Any, cast
 import tiktoken
 from pydantic import BaseModel, ValidationError
 
+from .cache import BaseCache, DiskCache, cache_key
 from .config import load_config
 from .exceptions import (
     GuardrailViolationError,
@@ -15,8 +17,10 @@ from .exceptions import (
 from .guardrails import Guardrail
 from .memory import MemoryStore
 from .metrics import MetricsCollector, global_metrics
+from .pii import PIIRedactor
 from .plugins import load_plugins
-from .providers import BaseProvider, OpenAIProvider, get_provider
+from .pricing import estimate_cost
+from .providers import BaseProvider, OpenAIProvider, ProviderResponse, get_provider
 from .resilience import (
     AsyncRateLimiter,
     CircuitBreaker,
@@ -76,6 +80,12 @@ class RivotrilAgent:
         provider: str | BaseProvider | None = None,
         plugins: list[Any] | str | None = None,
         metrics_path: Any = _UNSET,
+        cache: Any = _UNSET,
+        cache_key_fn: Any = _UNSET,
+        track_costs: Any = _UNSET,
+        schema_repair_attempts: Any = _UNSET,
+        redact_pii: Any = _UNSET,
+        pii_redactor: PIIRedactor | None = None,
     ) -> None:
         config = load_config()
 
@@ -116,6 +126,19 @@ class RivotrilAgent:
             self.metrics = MetricsCollector(auto_save_path=resolved_metrics_path)
         else:
             self.metrics = global_metrics
+
+        resolved_cache = _resolve(cache, "cache_path", None)
+        if isinstance(resolved_cache, BaseCache):
+            self.cache: BaseCache | None = resolved_cache
+        elif isinstance(resolved_cache, str):
+            self.cache = DiskCache(resolved_cache)
+        else:
+            self.cache = None
+        self.cache_key_fn = _resolve(cache_key_fn, "cache_key_fn", cache_key)
+        self.track_costs = _resolve(track_costs, "track_costs", False)
+        self.schema_repair_attempts = _resolve(schema_repair_attempts, "schema_repair_attempts", 0)
+        self.redact_pii = _resolve(redact_pii, "redact_pii", False)
+        self.pii_redactor = pii_redactor or PIIRedactor()
 
         if verifier is not None:
             self.verifier = verifier
@@ -208,6 +231,144 @@ class RivotrilAgent:
     def _count_tokens(self, text: str) -> int:
         return len(self.tokenizer.encode(text))
 
+    def _redact(self, text: str) -> str:
+        if not self.redact_pii:
+            return text
+        return self.pii_redactor.redact(text)
+
+    def _estimate_execution_cost(
+        self,
+        response: Any,
+        messages: list[Any],
+        response_text: str,
+    ) -> float | None:
+        if not self.track_costs:
+            return None
+
+        provider_name = getattr(self.provider, "name", "base")
+        prompt_tokens: int | None = getattr(response, "prompt_tokens", None)
+        completion_tokens: int | None = getattr(response, "completion_tokens", None)
+
+        if prompt_tokens is None:
+            prompt_tokens = sum(self._count_tokens(str(m.get("content", ""))) for m in messages)
+        if completion_tokens is None:
+            completion_tokens = self._count_tokens(response_text)
+
+        return estimate_cost(provider_name, self.model, prompt_tokens, completion_tokens)
+
+    def _schema_instruction(self, response_model: type[BaseModel]) -> str:
+        """Return a prompt appendix requesting JSON matching the model schema."""
+        schema = response_model.model_json_schema()
+        return (
+            "\n\nYou must respond with a single JSON object matching this schema:\n"
+            f"{json.dumps(schema, indent=2)}\n"
+            "Respond only with the JSON object, no markdown."
+        )
+
+    def _parse_structured_response(
+        self, response_text: str, response_model: type[BaseModel]
+    ) -> BaseModel:
+        """Parse and validate a raw response against a Pydantic model."""
+        return response_model.model_validate_json(response_text)
+
+    def _execute_structured_with_repair(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel],
+        tools: list[Any] | None = None,
+    ) -> Any:
+        """Run a structured completion with manual schema-repair fallback.
+
+        When ``schema_repair_attempts`` is enabled, this path bypasses
+        instructor so that invalid responses can be inspected and repaired.
+        """
+        structured_messages = list(messages)
+        last_user_idx = max(
+            (i for i, m in enumerate(structured_messages) if m.get("role") == "user"),
+            default=len(structured_messages) - 1,
+        )
+        original_content = structured_messages[last_user_idx].get("content", "")
+        structured_messages[last_user_idx]["content"] = (
+            f"{original_content}{self._schema_instruction(response_model)}"
+        )
+
+        response = self._call_llm(structured_messages, None, tools=tools)
+        response_text = response.text if hasattr(response, "text") else str(response)
+
+        for attempt in range(self.schema_repair_attempts + 1):
+            try:
+                structured = self._parse_structured_response(response_text, response_model)
+                return ProviderResponse(structured=structured)
+            except ValidationError as exc:
+                logger.warning(
+                    "Structured response parse failed (attempt %d): %s", attempt + 1, exc
+                )
+                if attempt >= self.schema_repair_attempts:
+                    raise
+                repair_messages = list(structured_messages)
+                repair_messages.append({"role": "assistant", "content": response_text})
+                repair_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous response failed validation. Correct it and "
+                            "respond with a single valid JSON object matching the required "
+                            f"schema.\n\nValidation errors:\n{exc}"
+                        ),
+                    }
+                )
+                response = self._call_llm(repair_messages, None, tools=tools)
+                response_text = response.text if hasattr(response, "text") else str(response)
+
+        return response
+
+    async def _execute_structured_with_repair_async(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel],
+        tools: list[Any] | None = None,
+    ) -> Any:
+        """Async version of :meth:`_execute_structured_with_repair`."""
+        structured_messages = list(messages)
+        last_user_idx = max(
+            (i for i, m in enumerate(structured_messages) if m.get("role") == "user"),
+            default=len(structured_messages) - 1,
+        )
+        original_content = structured_messages[last_user_idx].get("content", "")
+        structured_messages[last_user_idx]["content"] = (
+            f"{original_content}{self._schema_instruction(response_model)}"
+        )
+
+        response = await self._call_llm_async(structured_messages, None, tools=tools)
+        response_text = response.text if hasattr(response, "text") else str(response)
+
+        for attempt in range(self.schema_repair_attempts + 1):
+            try:
+                structured = self._parse_structured_response(response_text, response_model)
+                return ProviderResponse(structured=structured)
+            except ValidationError as exc:
+                logger.warning(
+                    "Structured response parse failed (attempt %d): %s", attempt + 1, exc
+                )
+                if attempt >= self.schema_repair_attempts:
+                    raise
+                repair_messages = list(structured_messages)
+                repair_messages.append({"role": "assistant", "content": response_text})
+                repair_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous response failed validation. Correct it and "
+                            "respond with a single valid JSON object matching the required "
+                            f"schema.\n\nValidation errors:\n{exc}"
+                        ),
+                    }
+                )
+                response = await self._call_llm_async(repair_messages, None, tools=tools)
+                response_text = response.text if hasattr(response, "text") else str(response)
+
+        return response
+
     def _check_token_budget(self, prompt: str) -> int:
         """Return token count for the prompt; raise if budget is exceeded."""
         prompt_tokens = self._count_tokens(prompt)
@@ -273,12 +434,40 @@ class RivotrilAgent:
         )
         return response
 
+    def _cache_lookup(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None,
+        tools: list[Any] | None = None,
+    ) -> Any | None:
+        if self.cache is None:
+            return None
+        key = self.cache_key_fn(messages, self.model, response_model, tools, self.system_prompt)
+        return self.cache.get(key)
+
+    def _cache_store(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None,
+        value: Any,
+        tools: list[Any] | None = None,
+    ) -> None:
+        if self.cache is None:
+            return
+        key = self.cache_key_fn(messages, self.model, response_model, tools, self.system_prompt)
+        self.cache.set(key, value)
+
     def _call_llm(
         self,
         messages: list[Any],
         response_model: type[BaseModel] | None,
         tools: list[Any] | None = None,
     ) -> Any:
+        cached = self._cache_lookup(messages, response_model, tools)
+        if cached is not None:
+            logger.debug("Cache hit for model %r", self.model)
+            return cached
+
         if self.rate_limiter is not None:
             self.rate_limiter.acquire()
 
@@ -288,7 +477,9 @@ class RivotrilAgent:
                 return self._execute_structured(messages, response_model, tools)
             return self._execute_unstructured(messages, tools)
 
-        return self.circuit_breaker.call(_call)
+        response = self.circuit_breaker.call(_call)
+        self._cache_store(messages, response_model, response, tools)
+        return response
 
     async def _call_llm_async(
         self,
@@ -296,6 +487,11 @@ class RivotrilAgent:
         response_model: type[BaseModel] | None,
         tools: list[Any] | None = None,
     ) -> Any:
+        cached = self._cache_lookup(messages, response_model, tools)
+        if cached is not None:
+            logger.debug("Cache hit for model %r", self.model)
+            return cached
+
         if self.async_rate_limiter is not None:
             await self.async_rate_limiter.acquire()
 
@@ -305,7 +501,9 @@ class RivotrilAgent:
                 return await self._execute_structured_async(messages, response_model, tools)
             return await self._execute_unstructured_async(messages, tools)
 
-        return await self.circuit_breaker.call_async(_call)
+        response = await self.circuit_breaker.call_async(_call)
+        self._cache_store(messages, response_model, response, tools)
+        return response
 
     def _handle_tool_calls(
         self,
@@ -376,16 +574,24 @@ class RivotrilAgent:
         error_msg: str | None = None
         response_text = ""
         response: Any = None
+        cost_usd: float | None = None
         tokens = self._check_token_budget(prompt)
         tool_registry = ToolRegistry(tools) if tools is not None else None
+
+        prompt = self._redact(prompt)
 
         logger.debug("Starting agent.run")
         try:
             self._run_preflight(prompt)
             messages = self._build_messages(prompt)
-            response = self._call_llm(
-                messages, response_model, tools=tool_registry.schemas if tool_registry else None
-            )
+            if response_model is not None and self.schema_repair_attempts > 0:
+                response = self._execute_structured_with_repair(
+                    messages, response_model, tools=tool_registry.schemas if tool_registry else None
+                )
+            else:
+                response = self._call_llm(
+                    messages, response_model, tools=tool_registry.schemas if tool_registry else None
+                )
 
             if tool_registry is not None and response_model is None:
                 response = self._handle_tool_calls(response, messages, tool_registry)
@@ -397,8 +603,10 @@ class RivotrilAgent:
             else:
                 response_text = response.text
 
+            response_text = self._redact(response_text)
             tokens += len(self.tokenizer.encode(response_text))
             self._session_tokens_used += tokens
+            cost_usd = self._estimate_execution_cost(response, messages, response_text)
             self._run_post_generation(prompt, response_text, response, context_sources)
             logger.info("Agent run completed successfully")
             if response_model is not None:
@@ -436,6 +644,7 @@ class RivotrilAgent:
                 guardrail_blocked=guardrail_blocked,
                 hallucination_blocked=hallucination_blocked,
                 error=error_msg,
+                cost_usd=cost_usd,
             )
 
     async def run_async(
@@ -451,16 +660,24 @@ class RivotrilAgent:
         error_msg: str | None = None
         response_text = ""
         response: Any = None
+        cost_usd: float | None = None
         tokens = self._check_token_budget(prompt)
         tool_registry = ToolRegistry(tools) if tools is not None else None
+
+        prompt = self._redact(prompt)
 
         logger.debug("Starting agent.run_async")
         try:
             self._run_preflight(prompt)
             messages = self._build_messages(prompt)
-            response = await self._call_llm_async(
-                messages, response_model, tools=tool_registry.schemas if tool_registry else None
-            )
+            if response_model is not None and self.schema_repair_attempts > 0:
+                response = await self._execute_structured_with_repair_async(
+                    messages, response_model, tools=tool_registry.schemas if tool_registry else None
+                )
+            else:
+                response = await self._call_llm_async(
+                    messages, response_model, tools=tool_registry.schemas if tool_registry else None
+                )
 
             if tool_registry is not None and response_model is None:
                 response = await self._handle_tool_calls_async(response, messages, tool_registry)
@@ -472,8 +689,10 @@ class RivotrilAgent:
             else:
                 response_text = response.text
 
+            response_text = self._redact(response_text)
             tokens += len(self.tokenizer.encode(response_text))
             self._session_tokens_used += tokens
+            cost_usd = self._estimate_execution_cost(response, messages, response_text)
             self._run_post_generation(prompt, response_text, response, context_sources)
             logger.info("Agent async run completed successfully")
             if response_model is not None:
@@ -511,6 +730,7 @@ class RivotrilAgent:
                 guardrail_blocked=guardrail_blocked,
                 hallucination_blocked=hallucination_blocked,
                 error=error_msg,
+                cost_usd=cost_usd,
             )
 
     def _stream_chunks(self, messages: list[Any]) -> Iterator[str]:

@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Response caching:
+  - `cache=` argument on `RivotrilAgent` (`InMemoryCache`, `DiskCache`, or custom `BaseCache`).
+  - `RIVOTRIL_CACHE_PATH` environment variable to activate disk-based caching.
+  - Deterministic cache keys based on model, messages, tools, and response model.
+- Schema-repair fallback for structured outputs:
+  - `schema_repair_attempts=` argument on `RivotrilAgent`.
+  - `RIVOTRIL_SCHEMA_REPAIR_ATTEMPTS` environment variable.
+  - Re-prompts the model with validation errors when Pydantic schema validation fails.
+- Cost tracking:
+  - `track_costs=` argument on `RivotrilAgent`.
+  - `RIVOTRIL_TRACK_COSTS` environment variable.
+  - Built-in pricing table for OpenAI, Anthropic, Cohere, and Gemini models.
+  - `estimate_cost()`, `register_pricing()`, and `list_supported_models()` helpers.
+- PII detection and redaction:
+  - `redact_pii=` argument on `RivotrilAgent`.
+  - `RIVOTRIL_REDACT_PII` environment variable.
+  - `PIIRedactor` with regex scanners for email, CPF, CNPJ, phone, and credit card.
 - Token budget controls on `RivotrilAgent`:
   - `max_prompt_tokens` and `max_session_tokens` constructor arguments.
   - `RIVOTRIL_MAX_PROMPT_TOKENS` and `RIVOTRIL_MAX_SESSION_TOKENS` environment variables.

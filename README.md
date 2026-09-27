@@ -313,6 +313,99 @@ metrics = MetricsCollector()
 metrics.load_metrics("metrics.json")
 ```
 
+## Response Caching
+
+Avoid repeated LLM calls for identical prompts by enabling a cache:
+
+```python
+from llmrivotril import RivotrilAgent, InMemoryCache
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    cache=InMemoryCache(),
+)
+```
+
+For persistent caching across restarts, use `DiskCache` or set `RIVOTRIL_CACHE_PATH`:
+
+```python
+from llmrivotril import RivotrilAgent, DiskCache
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    cache=DiskCache("llm_cache.pkl"),
+)
+```
+
+## Schema-Repair Fallback
+
+When structured outputs fail Pydantic validation, the agent can ask the model to
+fix its response:
+
+```python
+from pydantic import BaseModel
+from llmrivotril import RivotrilAgent
+
+class Answer(BaseModel):
+    answer: str
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    schema_repair_attempts=2,
+)
+
+agent.run("Return a JSON answer.", response_model=Answer)
+```
+
+## Cost Tracking
+
+Estimate spend per request and accumulate it in metrics:
+
+```python
+from llmrivotril import RivotrilAgent
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    track_costs=True,
+)
+
+agent.run("Hello")
+print(agent.metrics.get_summary()["total_cost_usd"])
+```
+
+For providers or models not in the built-in table, register custom pricing:
+
+```python
+from llmrivotril import register_pricing
+
+register_pricing("my-provider", "my-model", input_price=1.0, output_price=2.0)
+```
+
+## PII Redaction
+
+Redact sensitive information from inputs and outputs before they reach the LLM
+or logs:
+
+```python
+from llmrivotril import RivotrilAgent
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    redact_pii=True,
+)
+
+agent.run("My email is alice@example.com")
+```
+
+You can also use `PIIRedactor` directly to scan or sanitize text:
+
+```python
+from llmrivotril import PIIRedactor
+
+redactor = PIIRedactor()
+text = redactor.redact("CPF: 123.456.789-09")
+```
+
 ## Configuration Files
 
 In addition to environment variables, `RivotrilAgent` reads configuration files.
@@ -380,6 +473,10 @@ them at runtime and records structured telemetry.
 | `RIVOTRIL_MAX_PROMPT_TOKENS` | int | Reject prompts above this token count. |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Reject runs that would exceed this cumulative budget. |
 | `RIVOTRIL_METRICS_PATH` | string | Persist metrics to this JSON file automatically. |
+| `RIVOTRIL_CACHE_PATH` | string | Enable disk-based response caching at this path. |
+| `RIVOTRIL_TRACK_COSTS` | bool | Enable estimated cost tracking in metrics. |
+| `RIVOTRIL_SCHEMA_REPAIR_ATTEMPTS` | int | Retry structured-output validation failures this many times. |
+| `RIVOTRIL_REDACT_PII` | bool | Redact detected PII from inputs and outputs. |
 | `RIVOTRIL_DASHBOARD_TOKEN` | string | When set, dashboard routes require `Authorization: Bearer <token>`. |
 
 Example:

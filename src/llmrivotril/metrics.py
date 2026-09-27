@@ -18,6 +18,7 @@ class MetricsCollector:
         self.guardrail_blocks = 0
         self.hallucinations_detected = 0
         self.total_tokens_consumed = 0
+        self.total_cost_usd: float | None = None
         self.latencies: list[float] = []
         self.logs: list[dict[str, Any]] = []
         self.auto_save_path = auto_save_path
@@ -31,11 +32,17 @@ class MetricsCollector:
         guardrail_blocked: bool = False,
         hallucination_blocked: bool = False,
         error: str | None = None,
+        cost_usd: float | None = None,
     ) -> None:
         with self._lock:
             self.requests_total += 1
             self.total_tokens_consumed += tokens
             self.latencies.append(latency)
+
+            if cost_usd is not None:
+                if self.total_cost_usd is None:
+                    self.total_cost_usd = 0.0
+                self.total_cost_usd += cost_usd
 
             if guardrail_blocked:
                 self.guardrail_blocks += 1
@@ -53,6 +60,7 @@ class MetricsCollector:
                     "guardrail_blocked": guardrail_blocked,
                     "hallucination_blocked": hallucination_blocked,
                     "error": error,
+                    "cost_usd": cost_usd,
                 },
             )
             # Keep history capped at 100 items
@@ -67,6 +75,7 @@ class MetricsCollector:
             self.guardrail_blocks = 0
             self.hallucinations_detected = 0
             self.total_tokens_consumed = 0
+            self.total_cost_usd = None
             self.latencies.clear()
             self.logs.clear()
 
@@ -83,6 +92,7 @@ class MetricsCollector:
                 "guardrail_blocks": self.guardrail_blocks,
                 "hallucinations_detected": self.hallucinations_detected,
                 "total_tokens_consumed": self.total_tokens_consumed,
+                "total_cost_usd": self.total_cost_usd,
                 "avg_latency": round(avg_latency, 3),
                 "success_rate": round(success_rate, 2),
                 "logs": self.logs,
@@ -96,6 +106,7 @@ class MetricsCollector:
                 "guardrail_blocks": self.guardrail_blocks,
                 "hallucinations_detected": self.hallucinations_detected,
                 "total_tokens_consumed": self.total_tokens_consumed,
+                "total_cost_usd": self.total_cost_usd,
                 "latencies": self.latencies.copy(),
                 "logs": self.logs.copy(),
             }
@@ -107,6 +118,7 @@ class MetricsCollector:
             self.guardrail_blocks = data.get("guardrail_blocks", 0)
             self.hallucinations_detected = data.get("hallucinations_detected", 0)
             self.total_tokens_consumed = data.get("total_tokens_consumed", 0)
+            self.total_cost_usd = data.get("total_cost_usd", None)
             self.latencies = data.get("latencies", []).copy()
             self.logs = data.get("logs", []).copy()
 
