@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -6,6 +7,16 @@ from pydantic import BaseModel, ValidationError
 from llmrivotril import Guardrail, MemoryStore, RivotrilAgent
 from llmrivotril.exceptions import GuardrailViolationError, TokenBudgetExceededError
 from llmrivotril.providers import BaseProvider, ProviderResponse
+
+
+def _fake_tool_call_chunk(index, tool_id=None, name=None, arguments=None):
+    """Build a fake OpenAI-style streaming chunk carrying a tool-call delta fragment."""
+    function = None
+    if name is not None or arguments is not None:
+        function = SimpleNamespace(name=name, arguments=arguments)
+    tool_call_delta = SimpleNamespace(index=index, id=tool_id, function=function)
+    delta = SimpleNamespace(content=None, tool_calls=[tool_call_delta])
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
 
 
 class Answer(BaseModel):
@@ -289,6 +300,104 @@ async def test_agent_run_stream_async_redacts_pii_in_memory():
     assert "john.doe@example.com" not in str(agent.memory.get_context())
 
 
+def test_agent_run_stream_answers_directly_still_stream_token_by_token():
+    agent, provider = _make_agent()
+    provider._stream_chunks = ["Hel", "lo!"]
+
+    chunks = list(agent.run_stream("hi", tools=[lambda: None]))
+
+    assert chunks == ["Hel", "lo!"]
+
+
+def test_agent_run_stream_executes_tool_call_and_yields_final_answer():
+    def get_weather(city: str) -> str:
+        return f"sunny in {city}"
+
+    agent, provider = _make_agent()
+    provider._stream_chunks = [
+        _fake_tool_call_chunk(0, tool_id="call_1", name="get_weather", arguments=""),
+        _fake_tool_call_chunk(0, arguments='{"city'),
+        _fake_tool_call_chunk(0, arguments='": "SP"}'),
+    ]
+    provider._complete_mock.return_value = ProviderResponse(content="It's sunny in SP.")
+
+    chunks = list(agent.run_stream("What's the weather in SP?", tools=[get_weather]))
+
+    assert chunks == ["It's sunny in SP."]
+    assert "".join(chunks) in str(agent.memory.get_context())
+
+
+@pytest.mark.asyncio
+async def test_agent_run_stream_async_executes_tool_call_and_yields_final_answer():
+    def get_weather(city: str) -> str:
+        return f"sunny in {city}"
+
+    agent, provider = _make_async_agent()
+    provider._astream_chunks = [
+        _fake_tool_call_chunk(0, tool_id="call_1", name="get_weather", arguments='{"city": "SP"}'),
+    ]
+    provider._acomplete_mock.return_value = ProviderResponse(content="It's sunny in SP.")
+
+    chunks = [chunk async for chunk in agent.run_stream_async("weather?", tools=[get_weather])]
+
+    assert chunks == ["It's sunny in SP."]
+
+
+def test_agent_run_stream_with_response_model_yields_json_and_sets_result():
+    agent, provider = _make_agent()
+    provider._stream_chunks = ['{"text": ', '"hello"}']
+
+    stream = agent.run_stream("hi", response_model=Answer)
+    chunks = list(stream)
+
+    assert "".join(chunks) == '{"text": "hello"}'
+    assert stream.result == Answer(text="hello")
+
+
+@pytest.mark.asyncio
+async def test_agent_run_stream_async_with_response_model_yields_json_and_sets_result():
+    agent, provider = _make_async_agent()
+    provider._astream_chunks = ['{"text": ', '"hello"}']
+
+    stream = agent.run_stream_async("hi", response_model=Answer)
+    chunks = [chunk async for chunk in stream]
+
+    assert "".join(chunks) == '{"text": "hello"}'
+    assert stream.result == Answer(text="hello")
+
+
+def test_agent_run_stream_rejects_response_model_and_tools_together():
+    agent, _ = _make_agent()
+    with pytest.raises(ValueError, match="does not support combining"):
+        agent.run_stream("hi", response_model=Answer, tools=[lambda: None])
+
+
+def test_agent_run_stream_async_rejects_response_model_and_tools_together():
+    agent, _ = _make_async_agent()
+    with pytest.raises(ValueError, match="does not support combining"):
+        agent.run_stream_async("hi", response_model=Answer, tools=[lambda: None])
+
+
+def test_agent_run_stream_structured_invalid_json_raises_guardrail_violation():
+    agent, provider = _make_agent()
+    provider._stream_chunks = ["not valid json"]
+
+    stream = agent.run_stream("hi", response_model=Answer)
+    with pytest.raises(GuardrailViolationError):
+        list(stream)
+
+
+def test_agent_run_stream_structured_redacts_pii_before_validating():
+    agent, provider = _make_agent(redact_pii=True)
+    provider._stream_chunks = ['{"text": "email me at ', 'john@example.com"}']
+
+    stream = agent.run_stream("hi", response_model=Answer)
+    list(stream)
+
+    assert "john@example.com" not in stream.result.text
+    assert "[REDACTED]" in stream.result.text
+
+
 def test_agent_run_stream_applies_output_guardrail():
     guardrail = Guardrail(name="short", max_tokens=5)
     agent, provider = _make_agent(guardrails=[guardrail])
@@ -368,6 +477,22 @@ def test_agent_uses_disk_cache_via_env(tmp_path, monkeypatch):
 
     assert result2 == "disk"
     assert provider2._complete_mock.call_count == 0
+
+
+def test_agent_persists_memory_via_env(tmp_path, monkeypatch):
+    memory_path = tmp_path / "agent-memory.json"
+    monkeypatch.setenv("RIVOTRIL_MEMORY_PATH", str(memory_path))
+
+    agent, provider = _make_agent()
+    provider._complete_mock.return_value = ProviderResponse(content="hi there")
+    agent.run("hello")
+    assert memory_path.exists()
+
+    agent2, _ = _make_agent()
+    assert agent2.memory.get_context() == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi there"},
+    ]
 
 
 def test_agent_tracks_cost_when_enabled():

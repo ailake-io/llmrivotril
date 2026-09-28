@@ -78,6 +78,38 @@ def test_agent_executes_tool_and_returns_final_answer():
     assert provider._complete_mock.call_count == 2
 
 
+def _multiply(a: int, b: int) -> int:
+    """Multiply two integers."""
+    return a * b
+
+
+def test_agent_executes_multiple_tool_rounds():
+    """Regression: the follow-up call after a tool result must still offer
+    tool schemas, or the model can never request a second tool call."""
+    provider = _MockProvider()
+    agent = RivotrilAgent(api_key="test", provider=provider)
+
+    provider._complete_mock.side_effect = [
+        ProviderResponse(
+            content=None,
+            tool_calls=[{"id": "call_1", "name": "_add", "arguments": {"a": 1, "b": 2}}],
+        ),
+        ProviderResponse(
+            content=None,
+            tool_calls=[{"id": "call_2", "name": "_multiply", "arguments": {"a": 3, "b": 4}}],
+        ),
+        ProviderResponse(content="3 and 12."),
+    ]
+
+    result = agent.run("Add 1+2, then multiply 3*4.", tools=[_add, _multiply])
+
+    assert result == "3 and 12."
+    assert provider._complete_mock.call_count == 3
+    # Every call, including the follow-ups, must have offered tool schemas.
+    for call in provider._complete_mock.call_args_list:
+        assert call.kwargs.get("tools"), "follow-up call must still offer tool schemas"
+
+
 @pytest.mark.asyncio
 async def test_agent_executes_tool_async():
     provider = _MockProvider()

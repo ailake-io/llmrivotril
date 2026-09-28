@@ -80,6 +80,7 @@ class RivotrilAgent:
         provider: str | BaseProvider | None = None,
         plugins: list[Any] | str | None = None,
         metrics_path: Any = _UNSET,
+        memory_path: Any = _UNSET,
         cache: Any = _UNSET,
         cache_key_fn: Any = _UNSET,
         track_costs: Any = _UNSET,
@@ -117,7 +118,14 @@ class RivotrilAgent:
 
         plugin_guardrails, plugin_verifiers = load_plugins(plugins)
         self.guardrails = (guardrails or []) + plugin_guardrails
-        self.memory = memory or MemoryStore()
+
+        resolved_memory_path = _resolve(memory_path, "memory_path", None)
+        if memory is not None:
+            self.memory = memory
+        elif resolved_memory_path:
+            self.memory = MemoryStore(auto_save_path=resolved_memory_path)
+        else:
+            self.memory = MemoryStore()
 
         resolved_metrics_path = _resolve(metrics_path, "metrics_path", None)
         if metrics is not None:
@@ -551,7 +559,7 @@ class RivotrilAgent:
                     }
                 )
 
-            response = self._call_llm(messages, None, tools=None)
+            response = self._call_llm(messages, None, tools=tool_registry.schemas)
 
         return response
 
@@ -579,7 +587,7 @@ class RivotrilAgent:
                     }
                 )
 
-            response = await self._call_llm_async(messages, None, tools=None)
+            response = await self._call_llm_async(messages, None, tools=tool_registry.schemas)
 
         return response
 
@@ -755,44 +763,108 @@ class RivotrilAgent:
                 cost_usd=cost_usd,
             )
 
-    def _stream_chunks(self, messages: list[Any]) -> Iterator[str]:
-        """Yield text chunks from the provider's synchronous stream."""
-        stream = self.provider.stream(
-            model=self.model,
-            messages=messages,
-            **self._llm_call_kwargs(),
-        )
+    @staticmethod
+    def _extract_stream_content(chunk: Any, tool_call_deltas: dict[int, dict[str, Any]]) -> str:
+        """Return the text content of a raw stream chunk.
+
+        Also accumulates OpenAI-style ``delta.tool_calls`` argument fragments
+        into ``tool_call_deltas`` (keyed by the delta's ``index``) in place,
+        so a tool-call turn can be reassembled once the stream ends.
+        """
+        if isinstance(chunk, str):
+            return chunk
+        if not (chunk.choices and chunk.choices[0].delta):
+            return ""
+        delta = chunk.choices[0].delta
+        delta_tool_calls = getattr(delta, "tool_calls", None)
+        if delta_tool_calls:
+            for tc in delta_tool_calls:
+                index = getattr(tc, "index", 0)
+                entry = tool_call_deltas.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                tc_id = getattr(tc, "id", None)
+                if tc_id:
+                    entry["id"] = tc_id
+                function = getattr(tc, "function", None)
+                if function is not None:
+                    name = getattr(function, "name", None)
+                    if name:
+                        entry["name"] = name
+                    arguments = getattr(function, "arguments", None)
+                    if arguments:
+                        entry["arguments"] += arguments
+        return delta.content or ""
+
+    @staticmethod
+    def _tool_call_deltas_to_dicts(
+        tool_call_deltas: dict[int, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        results = []
+        for entry in tool_call_deltas.values():
+            try:
+                arguments = json.loads(entry["arguments"]) if entry["arguments"] else {}
+            except json.JSONDecodeError:
+                arguments = {}
+            results.append({"id": entry["id"], "name": entry["name"], "arguments": arguments})
+        return results
+
+    def _stream_chunks(
+        self, messages: list[Any], tool_registry: ToolRegistry | None = None
+    ) -> Iterator[str]:
+        """Yield text chunks from the provider's synchronous stream.
+
+        See :meth:`run_stream` for how ``tool_registry`` changes behavior.
+        """
+        tool_call_deltas: dict[int, dict[str, Any]] = {}
+        stream_kwargs = self._llm_call_kwargs()
+        if tool_registry is not None:
+            stream_kwargs["tools"] = tool_registry.schemas
+        stream = self.provider.stream(model=self.model, messages=messages, **stream_kwargs)
         for chunk in stream:
-            if isinstance(chunk, str):
-                yield chunk
-                continue
-            content = ""
-            if chunk.choices and chunk.choices[0].delta:
-                content = chunk.choices[0].delta.content or ""
+            content = self._extract_stream_content(chunk, tool_call_deltas)
             if content:
                 yield content
 
-    async def _astream_chunks(self, messages: list[Any]) -> AsyncIterator[str]:
-        """Yield text chunks from the provider's asynchronous stream."""
+        if tool_call_deltas and tool_registry is not None:
+            fake_response = ProviderResponse(
+                tool_calls=self._tool_call_deltas_to_dicts(tool_call_deltas)
+            )
+            final_response = self._handle_tool_calls(fake_response, messages, tool_registry)
+            yield final_response.text if hasattr(final_response, "text") else str(final_response)
+
+    async def _astream_chunks(
+        self, messages: list[Any], tool_registry: ToolRegistry | None = None
+    ) -> AsyncIterator[str]:
+        """Yield text chunks from the provider's asynchronous stream.
+
+        See :meth:`run_stream` for how ``tool_registry`` changes behavior.
+        """
+        tool_call_deltas: dict[int, dict[str, Any]] = {}
+        stream_kwargs = self._llm_call_kwargs()
+        if tool_registry is not None:
+            stream_kwargs["tools"] = tool_registry.schemas
         async for chunk in self.provider.astream(
-            model=self.model,
-            messages=messages,
-            **self._llm_call_kwargs(),
+            model=self.model, messages=messages, **stream_kwargs
         ):
-            if isinstance(chunk, str):
-                yield chunk
-                continue
-            content = ""
-            if chunk.choices and chunk.choices[0].delta:
-                content = chunk.choices[0].delta.content or ""
+            content = self._extract_stream_content(chunk, tool_call_deltas)
             if content:
                 yield content
+
+        if tool_call_deltas and tool_registry is not None:
+            fake_response = ProviderResponse(
+                tool_calls=self._tool_call_deltas_to_dicts(tool_call_deltas)
+            )
+            final_response = await self._handle_tool_calls_async(
+                fake_response, messages, tool_registry
+            )
+            yield final_response.text if hasattr(final_response, "text") else str(final_response)
 
     def run_stream(
         self,
         prompt: str,
         context_sources: ContextSources = None,
-    ) -> Iterator[str]:
+        tools: list[Any] | str | None = None,
+        response_model: type[BaseModel] | None = None,
+    ) -> "Iterator[str] | StreamedStructuredResult":
         """Run preflight checks and stream the response chunk by chunk.
 
         Input guardrails are applied before generation. Output guardrails,
@@ -804,7 +876,39 @@ class RivotrilAgent:
         stream (PII can span a chunk boundary, so it can't be caught without
         buffering the whole response first, which would defeat streaming);
         only the text written to memory and metrics afterwards is redacted.
+
+        With ``tools=``, a turn where the model answers directly still
+        streams token by token. A turn where the model requests a tool call
+        cannot be streamed (tool-call argument deltas are accumulated
+        silently, tools are executed, and the follow-up completion is a
+        single blocking call) -- that turn's text is yielded as one chunk.
+        Cannot be combined with ``response_model=``.
+
+        With ``response_model=``, this returns a :class:`StreamedStructuredResult`
+        instead of a plain iterator: iterate it for the raw JSON text as it
+        streams (e.g. a live "typing" indicator), and read ``.result`` after
+        the iteration ends for the validated ``response_model`` instance --
+        partial JSON isn't a valid model, so there's nothing to validate
+        until the stream is done.
         """
+        if response_model is not None:
+            if tools is not None:
+                raise ValueError(
+                    "run_stream() does not support combining response_model= and tools=."
+                )
+            wrapper = StreamedStructuredResult()
+            wrapper._generator = self._run_stream_structured(
+                prompt, response_model, context_sources, wrapper
+            )
+            return wrapper
+        return self._run_stream_text(prompt, context_sources, tools)
+
+    def _run_stream_text(
+        self,
+        prompt: str,
+        context_sources: ContextSources = None,
+        tools: list[Any] | str | None = None,
+    ) -> Iterator[str]:
         start_time = time.time()
         guardrail_blocked = False
         hallucination_blocked = False
@@ -812,13 +916,14 @@ class RivotrilAgent:
         response_text = ""
         tokens = self._check_token_budget(prompt)
         prompt = self._redact(prompt)
+        tool_registry = ToolRegistry(tools) if tools is not None else None
 
         logger.debug("Starting agent.run_stream")
         try:
             self._run_preflight(prompt)
             messages = self._build_messages(prompt)
 
-            for chunk in self._stream_chunks(messages):
+            for chunk in self._stream_chunks(messages, tool_registry):
                 response_text += chunk
                 yield chunk
 
@@ -854,12 +959,32 @@ class RivotrilAgent:
                 error=error_msg,
             )
 
-    async def run_stream_async(
+    def run_stream_async(
         self,
         prompt: str,
         context_sources: ContextSources = None,
-    ) -> AsyncIterator[str]:
+        tools: list[Any] | str | None = None,
+        response_model: type[BaseModel] | None = None,
+    ) -> "AsyncIterator[str] | AsyncStreamedStructuredResult":
         """Async version of :meth:`run_stream`."""
+        if response_model is not None:
+            if tools is not None:
+                raise ValueError(
+                    "run_stream_async() does not support combining response_model= and tools=."
+                )
+            async_wrapper = AsyncStreamedStructuredResult()
+            async_wrapper._generator = self._run_stream_structured_async(
+                prompt, response_model, context_sources, async_wrapper
+            )
+            return async_wrapper
+        return self._run_stream_text_async(prompt, context_sources, tools)
+
+    async def _run_stream_text_async(
+        self,
+        prompt: str,
+        context_sources: ContextSources = None,
+        tools: list[Any] | str | None = None,
+    ) -> AsyncIterator[str]:
         start_time = time.time()
         guardrail_blocked = False
         hallucination_blocked = False
@@ -867,13 +992,14 @@ class RivotrilAgent:
         response_text = ""
         tokens = self._check_token_budget(prompt)
         prompt = self._redact(prompt)
+        tool_registry = ToolRegistry(tools) if tools is not None else None
 
         logger.debug("Starting agent.run_stream_async")
         try:
             self._run_preflight(prompt)
             messages = self._build_messages(prompt)
 
-            async for chunk in self._astream_chunks(messages):
+            async for chunk in self._astream_chunks(messages, tool_registry):
                 response_text += chunk
                 yield chunk
 
@@ -908,3 +1034,167 @@ class RivotrilAgent:
                 hallucination_blocked=hallucination_blocked,
                 error=error_msg,
             )
+
+    def _run_stream_structured(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        context_sources: ContextSources,
+        result_holder: "StreamedStructuredResult",
+    ) -> Iterator[str]:
+        start_time = time.time()
+        guardrail_blocked = False
+        hallucination_blocked = False
+        error_msg: str | None = None
+        response_text = ""
+        tokens = self._check_token_budget(prompt)
+        prompt = self._redact(prompt)
+
+        logger.debug("Starting agent.run_stream (structured)")
+        try:
+            self._run_preflight(prompt)
+            messages = self._build_messages(prompt)
+
+            for chunk in self._stream_chunks(messages, None):
+                response_text += chunk
+                yield chunk
+
+            structured_json = self._redact(response_text)
+            structured = response_model.model_validate_json(structured_json)
+            response_text = structured.model_dump_json()
+
+            tokens += len(self.tokenizer.encode(response_text))
+            self._session_tokens_used += tokens
+            self._run_post_generation(prompt, response_text, structured, context_sources)
+            result_holder.result = structured
+            logger.info("Agent structured stream completed successfully")
+
+        except ValidationError as exc:
+            guardrail_blocked = True
+            error_msg = str(exc)
+            logger.warning("Structured stream response validation failed: %s", exc)
+            raise GuardrailViolationError(
+                f"Output blocked: response model validation failed ({exc})"
+            ) from exc
+        except GuardrailViolationError as exc:
+            guardrail_blocked = True
+            error_msg = str(exc)
+            logger.warning("Guardrail violation: %s", exc)
+            raise
+        except HallucinationDetectedError as exc:
+            hallucination_blocked = True
+            error_msg = str(exc)
+            logger.warning("Hallucination detected: %s", exc)
+            raise
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.exception("Agent structured stream failed with unexpected error")
+            raise
+        finally:
+            latency = time.time() - start_time
+            self.metrics.log_execution(
+                prompt=prompt,
+                response=response_text if response_text else "N/A",
+                tokens=tokens,
+                latency=latency,
+                guardrail_blocked=guardrail_blocked,
+                hallucination_blocked=hallucination_blocked,
+                error=error_msg,
+            )
+
+    async def _run_stream_structured_async(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        context_sources: ContextSources,
+        result_holder: "AsyncStreamedStructuredResult",
+    ) -> AsyncIterator[str]:
+        start_time = time.time()
+        guardrail_blocked = False
+        hallucination_blocked = False
+        error_msg: str | None = None
+        response_text = ""
+        tokens = self._check_token_budget(prompt)
+        prompt = self._redact(prompt)
+
+        logger.debug("Starting agent.run_stream_async (structured)")
+        try:
+            self._run_preflight(prompt)
+            messages = self._build_messages(prompt)
+
+            async for chunk in self._astream_chunks(messages, None):
+                response_text += chunk
+                yield chunk
+
+            structured_json = self._redact(response_text)
+            structured = response_model.model_validate_json(structured_json)
+            response_text = structured.model_dump_json()
+
+            tokens += len(self.tokenizer.encode(response_text))
+            self._session_tokens_used += tokens
+            self._run_post_generation(prompt, response_text, structured, context_sources)
+            result_holder.result = structured
+            logger.info("Agent async structured stream completed successfully")
+
+        except ValidationError as exc:
+            guardrail_blocked = True
+            error_msg = str(exc)
+            logger.warning("Structured stream response validation failed: %s", exc)
+            raise GuardrailViolationError(
+                f"Output blocked: response model validation failed ({exc})"
+            ) from exc
+        except GuardrailViolationError as exc:
+            guardrail_blocked = True
+            error_msg = str(exc)
+            logger.warning("Guardrail violation: %s", exc)
+            raise
+        except HallucinationDetectedError as exc:
+            hallucination_blocked = True
+            error_msg = str(exc)
+            logger.warning("Hallucination detected: %s", exc)
+            raise
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.exception("Agent async structured stream failed with unexpected error")
+            raise
+        finally:
+            latency = time.time() - start_time
+            self.metrics.log_execution(
+                prompt=prompt,
+                response=response_text if response_text else "N/A",
+                tokens=tokens,
+                latency=latency,
+                guardrail_blocked=guardrail_blocked,
+                hallucination_blocked=hallucination_blocked,
+                error=error_msg,
+            )
+
+
+class StreamedStructuredResult:
+    """Returned by ``RivotrilAgent.run_stream(response_model=...)``.
+
+    Iterate for the raw JSON text as it streams (e.g. a live "typing"
+    indicator); ``.result`` holds the validated ``response_model`` instance,
+    set once iteration has fully consumed the stream -- partial JSON isn't a
+    valid model, so there's nothing to validate until the stream ends.
+    """
+
+    def __init__(self) -> None:
+        self._generator: Iterator[str] | None = None
+        self.result: Any = None
+
+    def __iter__(self) -> Iterator[str]:
+        assert self._generator is not None
+        return self._generator
+
+
+class AsyncStreamedStructuredResult:
+    """Async version of :class:`StreamedStructuredResult`."""
+
+    def __init__(self) -> None:
+        self._generator: AsyncIterator[str] | None = None
+        self.result: Any = None
+
+    def __aiter__(self) -> AsyncIterator[str]:
+        assert self._generator is not None
+        return self._generator
