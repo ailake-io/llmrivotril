@@ -37,6 +37,18 @@ def test_text_loader_loads_directory(sample_dir):
     assert docs[0].metadata["source"].endswith("intro.txt")
 
 
+def test_text_loader_skips_unreadable_file_in_directory(sample_dir, caplog):
+    # Invalid UTF-8 bytes -- read_text() raises UnicodeDecodeError for this file.
+    (sample_dir / "broken.txt").write_bytes(b"\xff\xfe not valid utf-8")
+
+    loader = TextLoader(extensions={".txt"})
+    docs = loader.load(sample_dir)
+
+    assert len(docs) == 1
+    assert "block unsafe outputs" in docs[0].content
+    assert any("broken.txt" in record.message for record in caplog.records)
+
+
 def test_markdown_loader_strips_frontmatter(sample_dir):
     loader = MarkdownLoader()
     docs = loader.load(sample_dir / "detail.md")
@@ -76,6 +88,21 @@ def test_keyword_retriever_empty_query():
     retriever = InMemoryKeywordRetriever()
     retriever.add_documents([Document(content="Some content.")])
     assert retriever.retrieve("the a an", top_k=2) == []
+
+
+def test_keyword_retriever_matches_accented_portuguese_words():
+    # [a-z0-9]+ would previously split "informação" into "informa" + "o",
+    # so a query for the whole word would never match.
+    retriever = InMemoryKeywordRetriever()
+    retriever.add_documents(
+        [
+            Document(content="A informação sobre o clima está disponível."),
+            Document(content="Paris é a capital da França."),
+        ]
+    )
+    results = retriever.retrieve("informação sobre clima", top_k=1)
+    assert len(results) == 1
+    assert "informação" in results[0].content.lower()
 
 
 def test_rag_pipeline_ingest_and_query(sample_dir):

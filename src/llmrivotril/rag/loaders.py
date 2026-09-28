@@ -1,10 +1,13 @@
 """Document loaders for local RAG sources."""
 
 import csv
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 from .document import Document
+
+logger = logging.getLogger("llmrivotril")
 
 
 class BaseLoader(ABC):
@@ -33,7 +36,10 @@ class TextLoader(BaseLoader):
         documents: list[Document] = []
         for ext in self.extensions:
             for file_path in directory.rglob(f"*{ext}"):
-                documents.append(self._load_file(file_path))
+                try:
+                    documents.append(self._load_file(file_path))
+                except Exception as exc:
+                    logger.warning("Skipping %s: failed to load (%s)", file_path, exc)
         return documents
 
     def _load_file(self, file_path: Path) -> Document:
@@ -87,7 +93,10 @@ class HTMLLoader(BaseLoader):
     def _load_directory(self, directory: Path) -> list[Document]:
         documents: list[Document] = []
         for file_path in directory.rglob("*.html"):
-            documents.append(self._load_file(file_path))
+            try:
+                documents.append(self._load_file(file_path))
+            except Exception as exc:
+                logger.warning("Skipping %s: failed to load (%s)", file_path, exc)
         return documents
 
     def _load_file(self, file_path: Path) -> Document:
@@ -128,7 +137,10 @@ class CSVLoader(BaseLoader):
     def _load_directory(self, directory: Path) -> list[Document]:
         documents: list[Document] = []
         for file_path in directory.rglob("*.csv"):
-            documents.extend(self._load_file(file_path))
+            try:
+                documents.extend(self._load_file(file_path))
+            except Exception as exc:
+                logger.warning("Skipping %s: failed to load (%s)", file_path, exc)
         return documents
 
     def _load_file(self, file_path: Path) -> list[Document]:
@@ -166,7 +178,10 @@ class PDFLoader(BaseLoader):
     def _load_directory(self, directory: Path) -> list[Document]:
         documents: list[Document] = []
         for file_path in directory.rglob("*.pdf"):
-            documents.extend(self._load_file(file_path))
+            try:
+                documents.extend(self._load_file(file_path))
+            except Exception as exc:
+                logger.warning("Skipping %s: failed to load (%s)", file_path, exc)
         return documents
 
     def _load_file(self, file_path: Path) -> list[Document]:
