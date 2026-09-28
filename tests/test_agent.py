@@ -267,6 +267,28 @@ async def test_agent_run_stream_async_yields_chunks():
     assert agent.memory.get_context()[-1]["content"] == "Async stream"
 
 
+def test_agent_run_stream_redacts_pii_in_memory_and_metrics():
+    agent, provider = _make_agent(redact_pii=True)
+    provider._stream_chunks = ["Contact ", "john.doe@example.com", " for details"]
+
+    list(agent.run_stream("My email is john.doe@example.com"))
+
+    assert "john.doe@example.com" not in str(agent.memory.get_context())
+    last_metric = agent.metrics.get_summary()
+    assert "john.doe@example.com" not in str(last_metric)
+
+
+@pytest.mark.asyncio
+async def test_agent_run_stream_async_redacts_pii_in_memory():
+    agent, provider = _make_async_agent(redact_pii=True)
+    provider._astream_chunks = ["Contact ", "john.doe@example.com", " for details"]
+
+    async for _ in agent.run_stream_async("My email is john.doe@example.com"):
+        pass
+
+    assert "john.doe@example.com" not in str(agent.memory.get_context())
+
+
 def test_agent_run_stream_applies_output_guardrail():
     guardrail = Guardrail(name="short", max_tokens=5)
     agent, provider = _make_agent(guardrails=[guardrail])

@@ -799,6 +799,11 @@ class RivotrilAgent:
         grounding verification, and memory update are applied to the full
         response after the stream ends. Raises the same exceptions as ``run``
         when safety checks fail.
+
+        With ``redact_pii=True``, yielded chunks are **not** redacted as they
+        stream (PII can span a chunk boundary, so it can't be caught without
+        buffering the whole response first, which would defeat streaming);
+        only the text written to memory and metrics afterwards is redacted.
         """
         start_time = time.time()
         guardrail_blocked = False
@@ -806,6 +811,7 @@ class RivotrilAgent:
         error_msg: str | None = None
         response_text = ""
         tokens = self._check_token_budget(prompt)
+        prompt = self._redact(prompt)
 
         logger.debug("Starting agent.run_stream")
         try:
@@ -816,6 +822,7 @@ class RivotrilAgent:
                 response_text += chunk
                 yield chunk
 
+            response_text = self._redact(response_text)
             tokens += len(self.tokenizer.encode(response_text))
             self._session_tokens_used += tokens
             self._run_post_generation(prompt, response_text, response_text, context_sources)
@@ -859,6 +866,7 @@ class RivotrilAgent:
         error_msg: str | None = None
         response_text = ""
         tokens = self._check_token_budget(prompt)
+        prompt = self._redact(prompt)
 
         logger.debug("Starting agent.run_stream_async")
         try:
@@ -869,6 +877,7 @@ class RivotrilAgent:
                 response_text += chunk
                 yield chunk
 
+            response_text = self._redact(response_text)
             tokens += len(self.tokenizer.encode(response_text))
             self._session_tokens_used += tokens
             self._run_post_generation(prompt, response_text, response_text, context_sources)

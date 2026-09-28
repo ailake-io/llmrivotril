@@ -7,8 +7,11 @@ annotations and docstrings.
 
 import inspect
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
+
+logger = logging.getLogger("llmrivotril")
 
 
 class ToolCall:
@@ -70,7 +73,18 @@ class ToolRegistry:
         try:
             result = fn(**tool_call.arguments)
         except Exception as exc:
-            return json.dumps({"error": str(exc)})
+            # The raw exception message can carry internal details (file
+            # paths, connection strings, etc.) that the tool author never
+            # meant to expose. It's logged in full here but only the
+            # exception type goes back to the model, since that result is
+            # appended to the conversation and can surface in the final
+            # response.
+            logger.warning(
+                "Tool %r raised %s: %s", tool_call.name, type(exc).__name__, exc
+            )
+            return json.dumps(
+                {"error": f"Tool {tool_call.name!r} failed with {type(exc).__name__}."}
+            )
 
         if isinstance(result, str):
             return result

@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -94,6 +95,19 @@ async def test_agent_executes_tool_async():
 
     assert result == "12"
     assert provider._acomplete_mock.call_count == 2
+
+
+def test_tool_registry_execute_does_not_leak_raw_exception_message():
+    def _fail():
+        raise RuntimeError("db connection failed: postgres://user:hunter2@10.0.0.5/prod")
+
+    registry = ToolRegistry([_fail])
+    result = registry.execute(ToolCall(id="1", name="_fail", arguments={}))
+
+    payload = json.loads(result)
+    assert "hunter2" not in payload["error"]
+    assert "10.0.0.5" not in payload["error"]
+    assert "RuntimeError" in payload["error"]
 
 
 def test_agent_tool_error_is_returned_to_model():
