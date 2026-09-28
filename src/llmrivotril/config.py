@@ -7,8 +7,9 @@ values read from configuration files.
 Supported configuration sources, in ascending order of precedence:
 
 1. ``.env`` file in the current working directory
-2. ``pyproject.toml`` section ``[tool.llmrivotril]``
-3. ``llmrivotril.toml`` in the current working directory
+2. ``pyproject.toml`` section ``[tool.llmrivotril]`` (used only when no
+   ``RIVOTRIL_CONFIG_FILE`` or ``llmrivotril.toml``/``.yaml``/``.yml`` is found)
+3. ``llmrivotril.toml``/``.yaml``/``.yml`` in the current working directory
 4. File pointed to by ``RIVOTRIL_CONFIG_FILE``
 5. Environment variables prefixed with ``RIVOTRIL_``
 6. Explicit constructor arguments to ``RivotrilAgent``
@@ -17,6 +18,8 @@ Supported configuration sources, in ascending order of precedence:
 import logging
 import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 logger = logging.getLogger("llmrivotril")
 
@@ -32,13 +35,6 @@ _ENV_FLOATS = {
     "RIVOTRIL_RETRY_MIN_WAIT",
     "RIVOTRIL_RETRY_MAX_WAIT",
     "RIVOTRIL_CIRCUIT_RECOVERY_TIMEOUT",
-}
-
-_ENV_INTS = {
-    "RIVOTRIL_RETRY_MAX_ATTEMPTS",
-    "RIVOTRIL_CIRCUIT_FAILURE_THRESHOLD",
-    "RIVOTRIL_MAX_SESSION_TOKENS",
-    "RIVOTRIL_MAX_PROMPT_TOKENS",
 }
 
 _ENV_STRINGS = {
@@ -216,12 +212,7 @@ def load_env_config() -> dict[str, object]:
 
 
 def _load_dotenv() -> None:
-    """Load a local ``.env`` file if ``python-dotenv`` is installed."""
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-
+    """Load a local ``.env`` file into the environment, if present."""
     env_path = Path.cwd() / ".env"
     if env_path.exists():
         load_dotenv(env_path, override=False)
