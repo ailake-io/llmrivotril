@@ -63,3 +63,37 @@ def test_save_and_load_from_json(tmp_path):
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": "hi there"},
     ]
+
+
+def test_auto_save_path_persists_after_every_turn(tmp_path):
+    path = tmp_path / "auto_memory.json"
+    memory = MemoryStore(auto_save_path=path)
+
+    memory.add_turn("user", "hello")
+    assert path.exists()
+
+    # A fresh instance pointed at the same path picks up the saved turn --
+    # this proves it's written after every add_turn, not just on demand.
+    reloaded = MemoryStore(auto_save_path=path)
+    assert reloaded.get_context() == [{"role": "user", "content": "hello"}]
+
+
+def test_auto_save_path_via_env_var(tmp_path, monkeypatch):
+    path = tmp_path / "env_memory.json"
+    monkeypatch.setenv("RIVOTRIL_MEMORY_PATH", str(path))
+
+    memory = MemoryStore()
+    memory.add_turn("user", "hi")
+
+    assert path.exists()
+    reloaded = MemoryStore()
+    assert reloaded.get_context() == [{"role": "user", "content": "hi"}]
+
+
+def test_auto_save_path_creates_missing_parent_directory(tmp_path):
+    path = tmp_path / "nested" / "dir" / "memory.json"
+    memory = MemoryStore(auto_save_path=path)
+
+    memory.add_turn("user", "hello")
+
+    assert path.exists()
