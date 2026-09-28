@@ -377,7 +377,7 @@ class AnthropicProvider(BaseProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            from anthropic import Anthropic  # type: ignore[import-not-found]
+            from anthropic import Anthropic
 
             self._client = Anthropic(
                 api_key=self.api_key, base_url=self.base_url, **self.extra_kwargs
@@ -533,7 +533,7 @@ class CohereProvider(BaseProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            import cohere  # type: ignore[import-not-found]
+            import cohere
 
             self._client = cohere.Client(self.api_key, **self.extra_kwargs)
         return self._client
@@ -830,7 +830,7 @@ class BedrockProvider(BaseProvider):
         with self._load_lock:
             if self._client is not None:
                 return self._client
-            import boto3  # type: ignore[import-not-found]
+            import boto3
 
             self._client = boto3.client(
                 "bedrock-runtime", region_name=self.region_name, **self.extra_kwargs

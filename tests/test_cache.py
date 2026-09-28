@@ -1,8 +1,10 @@
 import fnmatch
 import json
 import sqlite3
+import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
@@ -216,5 +218,9 @@ def test_redis_cache_round_trips_structured_response():
 
 
 def test_redis_cache_requires_redis_package_when_no_client_given():
-    with pytest.raises(ImportError, match="redis"):
-        RedisCache(url="redis://localhost:6379/0")
+    # Force the import to fail regardless of whether `redis` happens to be
+    # installed in the environment running this test (it's an optional
+    # dependency, sometimes pulled in transitively by other extras).
+    with patch.dict(sys.modules, {"redis": None}):
+        with pytest.raises(ImportError, match="redis"):
+            RedisCache(url="redis://localhost:6379/0")

@@ -83,7 +83,7 @@ ci = [
     "twine>=5.0.0",
 ]
 dev = [
-    "llmrivotril[ci,providers,semantic]"
+    "llmrivotril[ci,providers,semantic,rag,redis,vector-stores]"
 ]
 
 [project.scripts]
@@ -115,6 +115,15 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
+# Every module here is an optional runtime dependency, imported lazily
+# behind a try/except ImportError. ignore_missing_imports covers both "not
+# installed at all" (import-not-found, the case in CI's `.[ci]` env) and
+# "installed but has no stubs/py.typed" (import-untyped, the case in a
+# `.[dev]` env with everything installed) uniformly -- an inline
+# `# type: ignore[import-not-found]` at the import site only suppresses the
+# first of those and starts erroring again the moment the package is
+# actually installed with no stubs, so prefer adding here over inline
+# ignores for any new optional dependency.
 module = [
     "numpy.*",
     "sentence_transformers.*",
@@ -127,5 +136,13 @@ module = [
     "pypdf.*",
     "tomli.*",
     "google.*",
+    "anthropic.*",
+    "cohere.*",
+    "boto3.*",
+    "redis.*",
+    "psycopg.*",
+    "qdrant_client.*",
+    "weaviate.*",
+    "pinecone.*",
 ]
 ignore_missing_imports = true

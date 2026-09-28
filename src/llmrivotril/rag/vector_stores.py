@@ -90,7 +90,7 @@ class PgVectorRetriever(BaseRetriever):
             if self._conn is not None:
                 return self._conn
             try:
-                import psycopg  # type: ignore[import-not-found]
+                import psycopg
             except ImportError as exc:
                 raise ImportError(
                     "psycopg is required for PgVectorRetriever. "
@@ -168,11 +168,8 @@ class QdrantRetriever(BaseRetriever):
             if self._client is not None:
                 return self._client
             try:
-                from qdrant_client import QdrantClient  # type: ignore[import-not-found]
-                from qdrant_client.models import (  # type: ignore[import-not-found]
-                    Distance,
-                    VectorParams,
-                )
+                from qdrant_client import QdrantClient
+                from qdrant_client.models import Distance, VectorParams
             except ImportError as exc:
                 raise ImportError(
                     "qdrant-client is required for QdrantRetriever. "
@@ -315,7 +312,7 @@ class PineconeRetriever(BaseRetriever):
             if self._index is not None:
                 return self._index
             try:
-                from pinecone import Pinecone  # type: ignore[import-not-found]
+                from pinecone import Pinecone
             except ImportError as exc:
                 raise ImportError(
                     "pinecone is required for PineconeRetriever. "

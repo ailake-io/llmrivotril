@@ -239,7 +239,7 @@ class RedisCache(BaseCache):
             self._client = client
         else:
             try:
-                import redis  # type: ignore[import-not-found]
+                import redis
             except ImportError as exc:
                 raise ImportError(
                     "RedisCache requires the 'redis' package. Install it with "
