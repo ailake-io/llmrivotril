@@ -1,5 +1,6 @@
 """High-level RAG pipeline for loading, chunking and retrieving context."""
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,20 @@ class RAGPipeline:
         """Retrieve context for ``query`` and return it as a single string."""
         documents = self.retriever.retrieve(query, top_k=top_k)
         return self.format_context(documents)
+
+    async def aingest(self, source: str | Path) -> list[Document]:
+        """Async version of :meth:`ingest`.
+
+        Loading, chunking and embedding are all synchronous, CPU/IO-bound
+        work (there's no async file I/O or async sentence-transformers here),
+        so this runs :meth:`ingest` in a worker thread rather than blocking
+        the event loop.
+        """
+        return await asyncio.to_thread(self.ingest, source)
+
+    async def aquery(self, query: str, top_k: int = 3) -> str:
+        """Async version of :meth:`query`; see :meth:`aingest`."""
+        return await asyncio.to_thread(self.query, query, top_k)
 
     @staticmethod
     def format_context(documents: list[Document]) -> str:

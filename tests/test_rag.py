@@ -10,7 +10,7 @@ from llmrivotril import (
     TextLoader,
 )
 from llmrivotril.rag.loaders import CSVLoader, HTMLLoader, PDFLoader
-from llmrivotril.rag.retrievers import InMemoryKeywordRetriever
+from llmrivotril.rag.retrievers import InMemoryEmbeddingRetriever, InMemoryKeywordRetriever
 
 
 @pytest.fixture
@@ -90,6 +90,119 @@ def test_keyword_retriever_empty_query():
     assert retriever.retrieve("the a an", top_k=2) == []
 
 
+def _fake_embed_fn(vectors: dict[str, list[float]]):
+    """Mimic sentence-transformers' encode(): single text -> one vector,
+    list of texts -> list of vectors."""
+
+    def embed(text_or_texts):
+        if isinstance(text_or_texts, str):
+            return vectors[text_or_texts]
+        return [vectors[t] for t in text_or_texts]
+
+    return embed
+
+
+def test_embedding_retriever_returns_top_k_ranked_by_similarity():
+    retriever = InMemoryEmbeddingRetriever()
+    vectors = {
+        "science topic": [1.0, 0.0],
+        "sports topic": [0.0, 1.0],
+        "physics is great": [0.9, 0.1],
+    }
+    retriever._embed_fn = _fake_embed_fn(vectors)
+    retriever.add_documents(
+        [
+            Document(content="science topic"),
+            Document(content="sports topic"),
+        ]
+    )
+
+    results = retriever.retrieve("physics is great", top_k=1)
+
+    assert len(results) == 1
+    assert results[0].content == "science topic"
+
+
+def test_embedding_retriever_cache_persists_across_instances(tmp_path):
+    cache_path = tmp_path / "embeddings.json"
+    vectors = {"science topic": [1.0, 0.0]}
+    call_count = 0
+
+    def counting_embed(text_or_texts):
+        nonlocal call_count
+        call_count += 1
+        if isinstance(text_or_texts, str):
+            return vectors[text_or_texts]
+        return [vectors[t] for t in text_or_texts]
+
+    retriever1 = InMemoryEmbeddingRetriever(cache_path=cache_path)
+    retriever1._embed_fn = counting_embed
+    retriever1.add_documents([Document(content="science topic")])
+    assert call_count == 1
+
+    # A fresh instance (new process, in effect) with the same cache_path
+    # must reuse the cached embedding instead of recomputing it.
+    retriever2 = InMemoryEmbeddingRetriever(cache_path=cache_path)
+    retriever2._embed_fn = counting_embed
+    retriever2.add_documents([Document(content="science topic")])
+    assert call_count == 1
+
+    results = retriever2.retrieve("science topic", top_k=1)
+    assert results[0].content == "science topic"
+
+
+def test_embedding_retriever_cache_ignores_entries_from_a_different_model(tmp_path):
+    cache_path = tmp_path / "embeddings.json"
+    vectors = {"science topic": [1.0, 0.0]}
+
+    retriever1 = InMemoryEmbeddingRetriever(model="model-a", cache_path=cache_path)
+    retriever1._embed_fn = _fake_embed_fn(vectors)
+    retriever1.add_documents([Document(content="science topic")])
+
+    call_count = 0
+
+    def counting_embed(text_or_texts):
+        nonlocal call_count
+        call_count += 1
+        return _fake_embed_fn(vectors)(text_or_texts)
+
+    retriever2 = InMemoryEmbeddingRetriever(model="model-b", cache_path=cache_path)
+    retriever2._embed_fn = counting_embed
+    retriever2.add_documents([Document(content="science topic")])
+
+    assert call_count == 1  # cache from model-a must not be reused for model-b
+
+
+def test_embedding_retriever_numpy_and_pure_python_paths_agree(monkeypatch):
+    from llmrivotril.rag import retrievers as retrievers_module
+
+    vectors = {
+        "science topic": [1.0, 0.0, 0.0],
+        "sports topic": [0.0, 1.0, 0.0],
+        "cooking topic": [0.0, 0.0, 1.0],
+        "physics is great": [0.9, 0.1, 0.05],
+    }
+
+    def build_retriever():
+        retriever = InMemoryEmbeddingRetriever()
+        retriever._embed_fn = _fake_embed_fn(vectors)
+        retriever.add_documents(
+            [
+                Document(content="science topic"),
+                Document(content="sports topic"),
+                Document(content="cooking topic"),
+            ]
+        )
+        return retriever
+
+    numpy_results = build_retriever().retrieve("physics is great", top_k=2)
+
+    monkeypatch.setattr(retrievers_module, "np", None)
+    pure_python_results = build_retriever().retrieve("physics is great", top_k=2)
+
+    assert [d.content for d in numpy_results] == [d.content for d in pure_python_results]
+
+
 def test_keyword_retriever_matches_accented_portuguese_words():
     # [a-z0-9]+ would previously split "informação" into "informa" + "o",
     # so a query for the whole word would never match.
@@ -116,6 +229,16 @@ def test_rag_pipeline_format_context():
     pipeline = RAGPipeline()
     formatted = pipeline.format_context([Document(content="A"), Document(content="B")])
     assert formatted == "A\n\nB"
+
+
+@pytest.mark.asyncio
+async def test_rag_pipeline_aingest_and_aquery(sample_dir):
+    pipeline = RAGPipeline()
+    chunks = await pipeline.aingest(sample_dir)
+    assert chunks
+
+    context = await pipeline.aquery("validate inputs", top_k=2)
+    assert "Guardrails validate" in context
 
 
 def test_rag_pipeline_summary():
