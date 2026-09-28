@@ -40,14 +40,41 @@ _PRICES: dict[str, dict[str, dict[str, float]]] = {
 }
 
 
+#: Providers whose models are priced under a different provider's table.
+#: azure_openai deployments run the same underlying OpenAI models (just
+#: under a custom deployment name, so this only helps when that name
+#: happens to match/prefix-match a known OpenAI model name).
+_PROVIDER_ALIASES: dict[str, str] = {
+    "azure_openai": "openai",
+}
+
+#: Bedrock model IDs are "<vendor>.<model-name>" (e.g.
+#: "anthropic.claude-3-5-sonnet-20241022-v2:0"); stripping the vendor
+#: prefix lets the existing prefix-match logic below find that vendor's
+#: pricing entry.
+_BEDROCK_VENDOR_PREFIXES: dict[str, str] = {
+    "anthropic.": "anthropic",
+    "cohere.": "cohere",
+}
+
+
 def get_model_pricing(provider: str, model: str) -> dict[str, float] | None:
     """Return pricing for a specific provider/model, or ``None`` if unknown."""
     with _lock:
-        provider_prices = _PRICES.get(provider.lower())
+        provider_key = _PROVIDER_ALIASES.get(provider.lower(), provider.lower())
+        model_lower = model.lower()
+
+        if provider_key == "bedrock":
+            for vendor_prefix, vendor in _BEDROCK_VENDOR_PREFIXES.items():
+                if model_lower.startswith(vendor_prefix):
+                    provider_key = vendor
+                    model_lower = model_lower[len(vendor_prefix) :]
+                    break
+
+        provider_prices = _PRICES.get(provider_key)
         if provider_prices is None:
             return None
 
-        model_lower = model.lower()
         if model_lower in provider_prices:
             return provider_prices[model_lower]
 

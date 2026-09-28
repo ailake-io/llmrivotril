@@ -34,3 +34,26 @@ def test_get_model_pricing():
     assert prices is not None
     assert "input" in prices
     assert "output" in prices
+
+
+def test_azure_openai_falls_back_to_openai_pricing_by_model_name():
+    # Only works when the deployment name matches/prefixes a known OpenAI
+    # model name -- azure_openai has no way to know what a custom deployment
+    # name maps to otherwise.
+    assert get_model_pricing("azure_openai", "gpt-4o-mini") == get_model_pricing(
+        "openai", "gpt-4o-mini"
+    )
+
+
+def test_azure_openai_unknown_deployment_name_returns_none():
+    assert get_model_pricing("azure_openai", "my-custom-deployment") is None
+
+
+def test_bedrock_anthropic_model_id_resolves_via_vendor_prefix():
+    assert get_model_pricing(
+        "bedrock", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    ) == get_model_pricing("anthropic", "claude-3-5-sonnet")
+
+
+def test_bedrock_unknown_vendor_prefix_returns_none():
+    assert get_model_pricing("bedrock", "meta.llama3-70b-instruct-v1:0") is None
