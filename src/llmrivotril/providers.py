@@ -7,10 +7,14 @@ coupling to any specific SDK.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import queue as queue_module
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -296,11 +300,70 @@ class OpenAIProvider(BaseProvider):
             yield chunk
 
 
+class AzureOpenAIProvider(OpenAIProvider):
+    """Azure OpenAI provider.
+
+    Uses the OpenAI SDK's dedicated ``AzureOpenAI``/``AsyncAzureOpenAI``
+    clients -- a different auth/endpoint shape than plain OpenAI, which is
+    why Azure isn't reachable by just pointing ``base_url`` at it (see the
+    "Other Providers" section of the README). No extra install needed:
+    these clients ship in the ``openai`` package, already a core dependency.
+
+    Requires ``azure_endpoint`` and ``api_version`` (Azure's REST API is
+    versioned by date, e.g. ``"2024-02-01"``; check your Azure resource for
+    the version it supports). The ``model`` passed to ``complete()``/
+    ``acomplete()``/``run()`` should be your Azure **deployment name**, not
+    the underlying model name -- that's how Azure routes the request.
+
+    Inherits ``complete``/``acomplete``/``stream``/``astream`` from
+    ``OpenAIProvider`` unchanged; only client construction differs.
+    """
+
+    name = "azure_openai"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        azure_endpoint: str | None = None,
+        api_version: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(api_key=api_key, base_url=base_url, **kwargs)
+        self.azure_endpoint = azure_endpoint
+        self.api_version = api_version
+
+    def _get_base_client(self) -> Any:
+        if self._base_client is None:
+            from openai import AzureOpenAI
+
+            self._base_client = AzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.azure_endpoint,  # type: ignore[arg-type]
+                api_version=self.api_version,
+                **self.extra_kwargs,
+            )
+        return self._base_client
+
+    def _get_async_base_client(self) -> Any:
+        if self._async_base_client is None:
+            from openai import AsyncAzureOpenAI
+
+            self._async_base_client = AsyncAzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.azure_endpoint,  # type: ignore[arg-type]
+                api_version=self.api_version,
+                **self.extra_kwargs,
+            )
+        return self._async_base_client
+
+
 class AnthropicProvider(BaseProvider):
     """Anthropic Claude provider.
 
     Requires the ``anthropic`` package. Structured output is emulated by
-    requesting JSON in the prompt and parsing it.
+    requesting JSON in the prompt and parsing it. Streaming uses the SDK's
+    ``messages.stream()`` context manager.
     """
 
     name = "anthropic"
@@ -409,11 +472,54 @@ class AnthropicProvider(BaseProvider):
             return ProviderResponse(structured=response_model.model_validate(parsed))
         return ProviderResponse(content=content)
 
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> Any:
+        client = self._get_client()
+        system, chat_messages = self._build_anthropic_messages(messages)
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": chat_messages,
+            "max_tokens": kwargs.pop("max_tokens", 4096),
+            **kwargs,
+        }
+        if system:
+            request_kwargs["system"] = system
+
+        with client.messages.stream(**request_kwargs) as stream:
+            yield from stream.text_stream
+
+    async def astream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        client = self._get_async_client()
+        system, chat_messages = self._build_anthropic_messages(messages)
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": chat_messages,
+            "max_tokens": kwargs.pop("max_tokens", 4096),
+            **kwargs,
+        }
+        if system:
+            request_kwargs["system"] = system
+
+        async with client.messages.stream(**request_kwargs) as stream:
+            async for text in stream.text_stream:
+                yield text
+
 
 class CohereProvider(BaseProvider):
     """Cohere provider.
 
     Requires the ``cohere`` package. Uses the chat completion endpoint.
+    Streaming filters the SDK's event stream down to ``text-generation``
+    events.
     """
 
     name = "cohere"
@@ -517,11 +623,54 @@ class CohereProvider(BaseProvider):
             return ProviderResponse(structured=response_model.model_validate(parsed))
         return ProviderResponse(content=content)
 
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> Any:
+        client = self._get_client()
+        system, chat_history, message = self._build_cohere_messages(messages)
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "message": message,
+            "chat_history": chat_history,
+            **kwargs,
+        }
+        if system:
+            request_kwargs["preamble"] = system
+
+        for event in client.chat_stream(**request_kwargs):
+            if getattr(event, "event_type", None) == "text-generation":
+                yield event.text
+
+    async def astream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        client = self._get_async_client()
+        system, chat_history, message = self._build_cohere_messages(messages)
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "message": message,
+            "chat_history": chat_history,
+            **kwargs,
+        }
+        if system:
+            request_kwargs["preamble"] = system
+
+        async for event in client.chat_stream(**request_kwargs):
+            if getattr(event, "event_type", None) == "text-generation":
+                yield event.text
+
 
 class GeminiProvider(BaseProvider):
     """Google Gemini provider.
 
-    Requires the ``google-generativeai`` package.
+    Requires the ``google-generativeai`` package. Streaming passes
+    ``stream=True`` to ``generate_content``/``generate_content_async``.
     """
 
     name = "gemini"
@@ -600,12 +749,234 @@ class GeminiProvider(BaseProvider):
             return ProviderResponse(structured=response_model.model_validate(parsed))
         return ProviderResponse(content=content)
 
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> Any:
+        client = self._get_client()
+        system, contents = self._build_gemini_content(messages)
+        prompt = "\n\n".join(contents)
+
+        model_obj = client.GenerativeModel(model_name=model, system_instruction=system)
+        response = model_obj.generate_content(prompt, stream=True, **kwargs)
+        for chunk in response:
+            text = getattr(chunk, "text", None)
+            if text:
+                yield text
+
+    async def astream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        client = self._get_client()
+        system, contents = self._build_gemini_content(messages)
+        prompt = "\n\n".join(contents)
+
+        model_obj = client.GenerativeModel(model_name=model, system_instruction=system)
+        response = await model_obj.generate_content_async(prompt, stream=True, **kwargs)
+        async for chunk in response:
+            text = getattr(chunk, "text", None)
+            if text:
+                yield text
+
+
+class BedrockProvider(BaseProvider):
+    """AWS Bedrock provider, via the Bedrock Runtime Converse API.
+
+    Requires ``boto3`` (``pip install "llmrivotril[bedrock]"``) and AWS
+    credentials resolved the normal boto3 way (environment variables,
+    ``~/.aws/credentials``, an instance role, etc.) -- ``api_key``/
+    ``base_url`` are accepted for interface symmetry with the other
+    providers but unused. ``model`` should be a Bedrock model ID (e.g.
+    ``"anthropic.claude-3-5-sonnet-20241022-v2:0"``) or inference profile
+    ARN.
+
+    Converse gives one request/response shape across model families on
+    Bedrock (Anthropic, Meta, Amazon, Mistral, Cohere) instead of each
+    family's own body schema, which is what this adapter is built on.
+    Structured output is emulated the same way as the Anthropic/Cohere/
+    Gemini adapters (JSON-schema instructions injected into the prompt).
+
+    Two things this adapter does **not** do, to avoid shipping translation
+    logic this project can't verify against a live AWS account:
+    - ``tools=`` (function calling) isn't translated to Converse's
+      ``toolConfig`` shape; tool calls are silently not offered to the model.
+    - There's no official async boto3 client, so ``acomplete``/``astream``
+      run the synchronous call in a worker thread rather than being
+      natively non-blocking.
+    """
+
+    name = "bedrock"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        region_name: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(api_key=api_key, base_url=base_url, **kwargs)
+        self.region_name = region_name
+        self._client: Any | None = None
+        self._load_lock = Lock()
+
+    def _get_client(self) -> Any:
+        if self._client is not None:
+            return self._client
+        with self._load_lock:
+            if self._client is not None:
+                return self._client
+            import boto3  # type: ignore[import-not-found]
+
+            self._client = boto3.client(
+                "bedrock-runtime", region_name=self.region_name, **self.extra_kwargs
+            )
+            return self._client
+
+    def _build_converse_messages(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
+        system: list[dict[str, Any]] | None = None
+        converse_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = str(msg.get("content", ""))
+            if role == "system":
+                system = (system or []) + [{"text": content}]
+            else:
+                converse_role = "assistant" if role == "assistant" else "user"
+                converse_messages.append({"role": converse_role, "content": [{"text": content}]})
+        return system, converse_messages
+
+    def _build_request(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        system, converse_messages = self._build_converse_messages(messages)
+        if response_model is not None and converse_messages:
+            last_block = converse_messages[-1]["content"][0]
+            last_block["text"] = self._inject_response_model_prompt(
+                last_block["text"], response_model
+            )
+        request: dict[str, Any] = {"modelId": model, "messages": converse_messages}
+        if system:
+            request["system"] = system
+        request.update(kwargs)
+        return request
+
+    def _parse_result(
+        self, result: dict[str, Any], response_model: type[BaseModel] | None
+    ) -> ProviderResponse:
+        output_message = result.get("output", {}).get("message", {})
+        content = "".join(block.get("text", "") for block in output_message.get("content", []))
+        usage = result.get("usage", {})
+        prompt_tokens = usage.get("inputTokens")
+        completion_tokens = usage.get("outputTokens")
+
+        if response_model is not None:
+            parsed = json.loads(content)
+            return ProviderResponse(
+                structured=response_model.model_validate(parsed),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+        return ProviderResponse(
+            content=content, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+        )
+
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
+        client = self._get_client()
+        request = self._build_request(messages, model, response_model, kwargs)
+        result = client.converse(**request)
+        return self._parse_result(result, response_model)
+
+    async def acomplete(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        response_model: type[BaseModel] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> ProviderResponse:
+        return await asyncio.to_thread(
+            self.complete, messages, model, response_model, tools, **kwargs
+        )
+
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> Any:
+        client = self._get_client()
+        kwargs.pop("tools", None)
+        request = self._build_request(messages, model, None, kwargs)
+        response = client.converse_stream(**request)
+        for event in response["stream"]:
+            delta = event.get("contentBlockDelta", {}).get("delta", {})
+            text = delta.get("text")
+            if text:
+                yield text
+
+    async def astream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        """Bridge the sync ``stream()`` generator into an async one.
+
+        boto3 has no async client, so the sync generator runs in a worker
+        thread that pushes chunks onto a queue as they arrive, and this
+        coroutine yields them as they're polled off the queue -- giving
+        genuine incremental delivery rather than blocking for the whole
+        response before yielding anything.
+        """
+        chunk_queue: queue_module.Queue[Any] = queue_module.Queue()
+        sentinel = object()
+
+        def _produce() -> None:
+            try:
+                for chunk in self.stream(messages, model, **kwargs):
+                    chunk_queue.put(chunk)
+            except Exception as exc:  # noqa: BLE001 - forwarded to the async caller below
+                chunk_queue.put(exc)
+            finally:
+                chunk_queue.put(sentinel)
+
+        thread = threading.Thread(target=_produce, daemon=True)
+        thread.start()
+
+        while True:
+            item = await asyncio.to_thread(chunk_queue.get)
+            if item is sentinel:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
 
 _PROVIDER_REGISTRY: dict[str, Callable[..., BaseProvider]] = {
     "openai": OpenAIProvider,
+    "azure_openai": AzureOpenAIProvider,
     "anthropic": AnthropicProvider,
     "cohere": CohereProvider,
     "gemini": GeminiProvider,
+    "bedrock": BedrockProvider,
 }
 
 
