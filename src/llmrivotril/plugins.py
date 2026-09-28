@@ -8,6 +8,12 @@ Plugins are registered via Python package entry points in one of these groups:
 A discovered entry point can be loaded by passing its advertised name to the
 agent constructor, either as a string or as part of a list. Use
 ``plugins="auto"`` to load every discovered plugin automatically.
+
+Security note: entry points are supplied by whatever is installed in the
+current environment. ``plugins="auto"`` (and ``discover_plugins()``, which it
+calls) executes ``entry.load()`` for every matching entry point from *any*
+installed package, with no sandboxing -- the same trust model as pytest or
+Flask plugins. Only use ``"auto"`` when you control what's installed.
 """
 
 import logging

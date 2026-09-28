@@ -259,6 +259,14 @@ agent = RivotrilAgent(
 )
 ```
 
+> **Security note:** `plugins="auto"` executes `entry.load()` for every
+> matching entry point registered by **any** package installed in the current
+> environment, with no sandboxing or confirmation prompt (the same trust
+> model as pytest plugins or Flask extensions). Only use `"auto"` when you
+> control what's installed in that environment. Prefer passing explicit
+> plugin names or instances (below) in any environment where third-party
+> packages might be installed.
+
 Or pass specific names and instances:
 
 ```python
