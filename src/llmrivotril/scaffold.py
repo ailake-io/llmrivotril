@@ -192,7 +192,7 @@ description = "LLM-Rivotril powered project"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "llmrivotril>=0.5.0",
+    "llmrivotril>=0.0.6",
 ]
 
 [project.optional-dependencies]

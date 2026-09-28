@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmrivotril"
-version = "0.5.0"
+version = "0.0.6"
 description = "A lightweight framework to reduce LLM hallucinations, enforce guardrails, manage stateful memory, and monitor performance via local dashboard."
 readme = "README.md"
 requires-python = ">=3.10"

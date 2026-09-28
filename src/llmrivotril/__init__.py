@@ -1,5 +1,5 @@
 from .agent import RivotrilAgent
-from .cache import BaseCache, DiskCache, InMemoryCache
+from .cache import BaseCache, DiskCache, InMemoryCache, RedisCache
 from .exceptions import (
     GuardrailViolationError,
     HallucinationDetectedError,
@@ -27,7 +27,7 @@ from .semantic import EmbeddingFaithfulnessVerifier, SemanticTopicGuardrail
 from .tools import ToolCall, ToolRegistry
 from .verifier import ModelBasedFaithfulnessVerifier
 
-__version__ = "0.5.0"
+__version__ = "0.0.6"
 __all__ = [
     "RivotrilAgent",
     "Guardrail",
@@ -35,6 +35,7 @@ __all__ = [
     "BaseCache",
     "InMemoryCache",
     "DiskCache",
+    "RedisCache",
     "PIIRedactor",
     "LLMRivotrilError",
     "GuardrailViolationError",

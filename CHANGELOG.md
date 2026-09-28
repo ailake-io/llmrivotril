@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-09-27
+
 ### Added
 
 - Response caching:
-  - `cache=` argument on `RivotrilAgent` (`InMemoryCache`, `DiskCache`, or custom `BaseCache`).
+  - `cache=` argument on `RivotrilAgent` (`InMemoryCache`, `DiskCache`, `RedisCache`, or custom `BaseCache`).
   - `RIVOTRIL_CACHE_PATH` environment variable to activate disk-based caching.
   - Deterministic cache keys based on model, messages, tools, and response model.
+  - `RedisCache` for multi-process/distributed deployments (optional `llmrivotril[redis]` dependency).
 - Schema-repair fallback for structured outputs:
   - `schema_repair_attempts=` argument on `RivotrilAgent`.
   - `RIVOTRIL_SCHEMA_REPAIR_ATTEMPTS` environment variable.
@@ -49,7 +52,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-provider support with adapters for OpenAI, Anthropic, Cohere, and Gemini in `llmrivotril.providers`.
 - `ModelBasedFaithfulnessVerifier` for LLM-as-a-judge grounding checks.
 
-## [0.5.0] - 2026-09-25
+### Fixed
+
+- PII redaction now applies to structured (`response_model=`) results and runs
+  before a response is written to `cache=`; previously `redact_pii=True` left
+  structured outputs unredacted and could persist raw PII at rest in the cache.
+- `DiskCache` no longer uses `pickle` (arbitrary code execution risk if the
+  cache file is ever tampered with); it now stores JSON in a local SQLite
+  file, with indexed per-key reads/writes instead of rewriting the whole
+  store on every `get`/`set`.
+- `PIIRedactor.redact()` no longer corrupts text when two pattern matches
+  overlap; overlapping spans are merged before replacement.
+- The local dashboard's token check now uses a constant-time comparison
+  (`secrets.compare_digest`) instead of `!=`, closing a timing side-channel.
+- `_load_dotenv()` no longer silently swallows a missing `python-dotenv`
+  install; it's a core dependency and is now imported unconditionally.
+- Fixed a duplicated `_ENV_INTS` definition in `config.py` that silently
+  discarded the first set of keys.
+- Corrected the configuration-precedence docstring in `config.py` to match
+  the actual lookup order.
+- `CircuitBreaker` no longer lets multiple threads dispatch a HALF_OPEN probe
+  concurrently; checking and transitioning state is now a single atomic
+  operation instead of two separately-locked steps.
+- `KeywordOverlapVerifier`'s tokenizer used `[a-z0-9]+`, which split accented
+  words (e.g. "informação" -> "informa" + "o"), corrupting grounding checks
+  for Portuguese and other accented-language text. Switched to a
+  Unicode-aware pattern and added Portuguese stopwords alongside the
+  existing English list.
+
+## [0.0.5] - 2026-09-25
 
 ### Added
 
@@ -62,7 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `RAGPipeline` to ingest sources and feed context into `RivotrilAgent`
 - Re-exported RAG primitives from the top-level `llmrivotril` package.
 
-## [0.4.0] - 2026-09-25
+## [0.0.4] - 2026-09-25
 
 ### Added
 
@@ -71,7 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - package directory with `agent.py` and `guardrails.py`
   - starter `tests/test_agent.py`
 
-## [0.3.0] - 2026-09-25
+## [0.0.3] - 2026-09-25
 
 ### Added
 
@@ -97,13 +128,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tiktoken` encoding now falls back to `cl100k_base` for unknown model names, improving compatibility with local/Ollama models.
 - `Guardrail` output validation also checks `disallowed_keywords`.
 
-## [0.2.0] - 2026-09-24
+## [0.0.2] - 2026-09-24
 
 ### Added
 
 - First packaged release of LLM-Rivotril.
 
-## [0.1.0] - 2026-09-20
+## [0.0.1] - 2026-09-20
 
 ### Added
 
