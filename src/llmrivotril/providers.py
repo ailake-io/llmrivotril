@@ -685,7 +685,17 @@ class GeminiProvider(BaseProvider):
         if self._client is None:
             import google.generativeai as genai
 
-            genai.configure(api_key=self.api_key, **self.extra_kwargs)
+            # getattr, not genai.configure(...) directly: google-generativeai's
+            # own stub doesn't declare `configure` as exported even though it
+            # exists at runtime, so a direct call is an attr-defined error
+            # whenever the package happens to be installed (never in CI's
+            # `.[ci]` env, always in a `.[dev]` one) -- an inline `# type:
+            # ignore[attr-defined]` would just flip to "unused" in the other
+            # environment. getattr() sidesteps the static check either way
+            # without relying on which environment mypy happens to run in.
+            getattr(genai, "configure")(  # noqa: B009 -- see comment above
+                api_key=self.api_key, **self.extra_kwargs
+            )
             self._client = genai
         return self._client
 
@@ -801,13 +811,20 @@ class BedrockProvider(BaseProvider):
     Structured output is emulated the same way as the Anthropic/Cohere/
     Gemini adapters (JSON-schema instructions injected into the prompt).
 
-    Two things this adapter does **not** do, to avoid shipping translation
-    logic this project can't verify against a live AWS account:
-    - ``tools=`` (function calling) isn't translated to Converse's
-      ``toolConfig`` shape; tool calls are silently not offered to the model.
-    - There's no official async boto3 client, so ``acomplete``/``astream``
-      run the synchronous call in a worker thread rather than being
-      natively non-blocking.
+    ``tools=`` is translated to Converse's ``toolConfig`` shape for
+    ``complete()``/``acomplete()``; a requested tool call comes back as
+    ``ProviderResponse.tool_calls`` the same shape ``normalize_tool_calls()``
+    expects from any other provider. Not translated for ``stream()``/
+    ``astream()`` -- Converse's streaming tool-call deltas
+    (``contentBlockStart``/``contentBlockDelta`` with incremental JSON
+    fragments) would need their own accumulation logic distinct from the
+    OpenAI-delta-shaped one ``agent.py`` already has; ``tools`` is silently
+    dropped for streaming rather than guessing at that translation.
+
+    There's no official async boto3 client, so ``acomplete`` runs the
+    synchronous call in a worker thread rather than being natively
+    non-blocking (``astream`` bridges it through a producer thread + queue
+    instead, for genuine incremental delivery).
     """
 
     name = "bedrock"
@@ -844,38 +861,94 @@ class BedrockProvider(BaseProvider):
         converse_messages: list[dict[str, Any]] = []
         for msg in messages:
             role = msg.get("role", "user")
-            content = str(msg.get("content", ""))
             if role == "system":
-                system = (system or []) + [{"text": content}]
+                system = (system or []) + [{"text": str(msg.get("content", ""))}]
+            elif role == "tool":
+                # agent.py's tool-calling loop appends one of these per
+                # executed call; Converse expects the result correlated back
+                # to the model's toolUse by id, as a "user" turn.
+                converse_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "toolResult": {
+                                    "toolUseId": msg.get("tool_call_id", ""),
+                                    "content": [{"text": str(msg.get("content", ""))}],
+                                }
+                            }
+                        ],
+                    }
+                )
             else:
                 converse_role = "assistant" if role == "assistant" else "user"
+                content = str(msg.get("content", ""))
                 converse_messages.append({"role": converse_role, "content": [{"text": content}]})
         return system, converse_messages
+
+    @staticmethod
+    def _tools_to_tool_config(tools: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+        """Translate OpenAI-style tool schemas into Converse's ``toolConfig``."""
+        if not tools:
+            return None
+        tool_specs = []
+        for tool in tools:
+            function = tool.get("function", tool)
+            tool_specs.append(
+                {
+                    "toolSpec": {
+                        "name": function.get("name", ""),
+                        "description": function.get("description", ""),
+                        "inputSchema": {"json": function.get("parameters", {"type": "object"})},
+                    }
+                }
+            )
+        return {"tools": tool_specs}
 
     def _build_request(
         self,
         messages: list[dict[str, Any]],
         model: str,
         response_model: type[BaseModel] | None,
+        tools: list[dict[str, Any]] | None,
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         system, converse_messages = self._build_converse_messages(messages)
         if response_model is not None and converse_messages:
             last_block = converse_messages[-1]["content"][0]
-            last_block["text"] = self._inject_response_model_prompt(
-                last_block["text"], response_model
-            )
+            if "text" in last_block:
+                last_block["text"] = self._inject_response_model_prompt(
+                    last_block["text"], response_model
+                )
         request: dict[str, Any] = {"modelId": model, "messages": converse_messages}
         if system:
             request["system"] = system
+        tool_config = self._tools_to_tool_config(tools)
+        if tool_config is not None:
+            request["toolConfig"] = tool_config
         request.update(kwargs)
         return request
+
+    @staticmethod
+    def _extract_tool_calls(content_blocks: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+        tool_calls = [
+            {
+                "id": block["toolUse"].get("toolUseId", ""),
+                "name": block["toolUse"].get("name", ""),
+                "arguments": block["toolUse"].get("input", {}),
+            }
+            for block in content_blocks
+            if "toolUse" in block
+        ]
+        return tool_calls or None
 
     def _parse_result(
         self, result: dict[str, Any], response_model: type[BaseModel] | None
     ) -> ProviderResponse:
         output_message = result.get("output", {}).get("message", {})
-        content = "".join(block.get("text", "") for block in output_message.get("content", []))
+        content_blocks = output_message.get("content", [])
+        content = "".join(block.get("text", "") for block in content_blocks)
+        tool_calls = self._extract_tool_calls(content_blocks)
         usage = result.get("usage", {})
         prompt_tokens = usage.get("inputTokens")
         completion_tokens = usage.get("outputTokens")
@@ -888,7 +961,10 @@ class BedrockProvider(BaseProvider):
                 completion_tokens=completion_tokens,
             )
         return ProviderResponse(
-            content=content, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+            content=content,
+            tool_calls=tool_calls,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
 
     def complete(
@@ -900,7 +976,7 @@ class BedrockProvider(BaseProvider):
         **kwargs: Any,
     ) -> ProviderResponse:
         client = self._get_client()
-        request = self._build_request(messages, model, response_model, kwargs)
+        request = self._build_request(messages, model, response_model, tools, kwargs)
         result = client.converse(**request)
         return self._parse_result(result, response_model)
 
@@ -924,7 +1000,7 @@ class BedrockProvider(BaseProvider):
     ) -> Any:
         client = self._get_client()
         kwargs.pop("tools", None)
-        request = self._build_request(messages, model, None, kwargs)
+        request = self._build_request(messages, model, None, None, kwargs)
         response = client.converse_stream(**request)
         for event in response["stream"]:
             delta = event.get("contentBlockDelta", {}).get("delta", {})

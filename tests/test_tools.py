@@ -1,10 +1,11 @@
 import json
-from unittest.mock import AsyncMock, MagicMock
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from llmrivotril import RivotrilAgent, ToolCall, ToolRegistry
-from llmrivotril.providers import BaseProvider, ProviderResponse
+from llmrivotril.providers import BaseProvider, BedrockProvider, ProviderResponse
 
 
 class _MockProvider(BaseProvider):
@@ -81,6 +82,49 @@ def test_agent_executes_tool_and_returns_final_answer():
 def _multiply(a: int, b: int) -> int:
     """Multiply two integers."""
     return a * b
+
+
+def test_agent_executes_tool_via_bedrock_provider_end_to_end():
+    """Integration test: real BedrockProvider (mocked boto3) driven through
+    RivotrilAgent's generic tool-calling loop, verifying the toolUse ->
+    execute -> toolResult round-trip actually works, not just that each
+    piece is individually correct in isolation."""
+    fake_boto3 = MagicMock()
+    mock_client = MagicMock()
+    mock_client.converse.side_effect = [
+        {
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "toolUse": {
+                                "toolUseId": "call_1",
+                                "name": "_add",
+                                "input": {"a": 1, "b": 2},
+                            }
+                        }
+                    ]
+                }
+            },
+            "usage": {"inputTokens": 10, "outputTokens": 5},
+        },
+        {
+            "output": {"message": {"content": [{"text": "The sum is 3."}]}},
+            "usage": {"inputTokens": 15, "outputTokens": 5},
+        },
+    ]
+    fake_boto3.client.return_value = mock_client
+
+    with patch.dict(sys.modules, {"boto3": fake_boto3}):
+        provider = BedrockProvider()
+        agent = RivotrilAgent(provider=provider, model="anthropic.claude-3-5-sonnet-v2:0")
+        result = agent.run("What is 1+2?", tools=[_add])
+
+    assert result == "The sum is 3."
+    # The second call's tool-result message must be correlated back to the
+    # first call's toolUseId.
+    second_call_messages = mock_client.converse.call_args_list[1].kwargs["messages"]
+    assert second_call_messages[-1]["content"][0]["toolResult"]["toolUseId"] == "call_1"
 
 
 def test_agent_executes_multiple_tool_rounds():

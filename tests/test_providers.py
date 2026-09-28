@@ -368,6 +368,118 @@ def _build_bedrock_converse_result(text: str) -> dict:
     }
 
 
+def test_bedrock_provider_translates_openai_tools_to_tool_config():
+    provider = BedrockProvider()
+    fake_boto3 = MagicMock()
+    mock_client = MagicMock()
+    mock_client.converse.return_value = _build_bedrock_converse_result("ok")
+    fake_boto3.client.return_value = mock_client
+
+    openai_tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                },
+            },
+        }
+    ]
+
+    with patch.dict(sys.modules, {"boto3": fake_boto3}):
+        provider.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            tools=openai_tools,
+        )
+
+    tool_config = mock_client.converse.call_args.kwargs["toolConfig"]
+    assert tool_config == {
+        "tools": [
+            {
+                "toolSpec": {
+                    "name": "get_weather",
+                    "description": "Get the weather",
+                    "inputSchema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                            "required": ["city"],
+                        }
+                    },
+                }
+            }
+        ]
+    }
+
+
+def test_bedrock_provider_parses_tool_use_into_tool_calls():
+    provider = BedrockProvider()
+    fake_boto3 = MagicMock()
+    mock_client = MagicMock()
+    mock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "call_1",
+                            "name": "get_weather",
+                            "input": {"city": "SP"},
+                        }
+                    }
+                ]
+            }
+        },
+        "usage": {"inputTokens": 10, "outputTokens": 5},
+    }
+    fake_boto3.client.return_value = mock_client
+
+    with patch.dict(sys.modules, {"boto3": fake_boto3}):
+        response = provider.complete(
+            messages=[{"role": "user", "content": "weather in SP?"}],
+            model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            tools=[{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
+        )
+
+    assert response.content == ""
+    assert response.tool_calls == [
+        {"id": "call_1", "name": "get_weather", "arguments": {"city": "SP"}}
+    ]
+
+
+def test_bedrock_provider_sends_tool_result_correlated_by_id():
+    provider = BedrockProvider()
+    fake_boto3 = MagicMock()
+    mock_client = MagicMock()
+    mock_client.converse.return_value = _build_bedrock_converse_result("sunny")
+    fake_boto3.client.return_value = mock_client
+
+    with patch.dict(sys.modules, {"boto3": fake_boto3}):
+        provider.complete(
+            messages=[
+                {"role": "user", "content": "weather in SP?"},
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "name": "get_weather",
+                    "content": "sunny in SP",
+                },
+            ],
+            model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        )
+
+    sent_messages = mock_client.converse.call_args.kwargs["messages"]
+    assert sent_messages[-1] == {
+        "role": "user",
+        "content": [{"toolResult": {"toolUseId": "call_1", "content": [{"text": "sunny in SP"}]}}],
+    }
+
+
 def test_bedrock_provider_unstructured_mocked():
     provider = BedrockProvider(region_name="us-east-1")
     fake_boto3 = MagicMock()
@@ -605,9 +717,7 @@ def test_gemini_provider_stream_yields_text_chunks_mocked():
     provider = GeminiProvider(api_key="test-key")
     fake_genai = MagicMock()
     mock_model = MagicMock()
-    mock_model.generate_content.return_value = iter(
-        [MagicMock(text="Hel"), MagicMock(text="lo")]
-    )
+    mock_model.generate_content.return_value = iter([MagicMock(text="Hel"), MagicMock(text="lo")])
     fake_genai.GenerativeModel.return_value = mock_model
 
     fake_google = MagicMock()
