@@ -141,7 +141,12 @@ class QdrantRetriever(BaseRetriever):
     Requires ``qdrant-client`` (``pip install "llmrivotril[qdrant]"``).
     Creates ``collection_name`` (cosine distance) on first use if it doesn't
     exist. Pass ``url`` for a remote/Docker instance or ``location=":memory:"``
-    for an in-process instance (mainly useful for testing this class itself).
+    for an in-process instance (mainly useful for testing this class itself
+    -- test_vector_stores.py actually runs this class against one for real).
+
+    Uses ``query_points()`` (``search()`` was removed in newer qdrant-client
+    releases); verified against qdrant-client 1.19.1 with a real in-process
+    instance, not just mocks.
     """
 
     def __init__(
@@ -207,8 +212,8 @@ class QdrantRetriever(BaseRetriever):
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
         client = self._get_client()
         query_vector = list(self._embedder.embed(query))
-        results = client.search(
-            collection_name=self.collection_name, query_vector=query_vector, limit=top_k
+        response = client.query_points(
+            collection_name=self.collection_name, query=query_vector, limit=top_k
         )
         return [
             Document(
@@ -216,7 +221,7 @@ class QdrantRetriever(BaseRetriever):
                 metadata=point.payload.get("metadata") or {},
                 id=point.payload.get("doc_id") or "",
             )
-            for point in results
+            for point in response.points
         ]
 
 
@@ -231,6 +236,14 @@ class WeaviateRetriever(BaseRetriever):
     ``weaviate.connect_to_local()``/``connect_to_weaviate_cloud()``) --
     connection setup varies enough by deployment that this class doesn't
     guess it for you.
+
+    Every method call here (``collections.exists``/``.create``/``.get``,
+    ``collection.batch.dynamic()``, ``collection.query.near_vector()``) was
+    checked against weaviate-client 4.23.1's real signatures and exercised
+    end to end against a real embedded server (``weaviate.connect_to_embedded()``)
+    during development, not just mocks -- not automated as a test here since
+    it downloads and runs an actual Weaviate binary (slow, and a bad fit for
+    routine CI), but it did work.
     """
 
     def __init__(
@@ -288,6 +301,13 @@ class PineconeRetriever(BaseRetriever):
     retrievers, this class does not create the index for you (Pinecone
     index creation is a billing-relevant, mostly one-time action better left
     explicit).
+
+    Pinecone is cloud-only (no local/embedded mode to test against for
+    real), but every call here was checked against pinecone 10.0.0's real
+    signatures: ``upsert()``/``query()`` are keyword-only, and ``query()``'s
+    ``QueryResponse``/each ``ScoredVector`` match both support plain
+    dict-style ``.get()`` access (an intentional backward-compatibility
+    shim in the SDK, not something this code is relying on by accident).
     """
 
     def __init__(

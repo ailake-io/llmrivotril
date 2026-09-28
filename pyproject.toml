@@ -62,13 +62,13 @@ pgvector = [
     "psycopg[binary]>=3.1.0",
 ]
 qdrant = [
-    "qdrant-client>=1.7.0",
+    "qdrant-client>=1.10.0",
 ]
 weaviate = [
     "weaviate-client>=4.4.0",
 ]
 pinecone = [
-    "pinecone>=5.0.0",
+    "pinecone>=10.0.0",
 ]
 vector-stores = [
     "llmrivotril[semantic,pgvector,qdrant,weaviate,pinecone]",

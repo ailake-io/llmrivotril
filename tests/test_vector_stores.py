@@ -10,6 +10,8 @@ load), matching the pattern in test_rag.py.
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from llmrivotril.rag.document import Document
 from llmrivotril.rag.vector_stores import (
     PgVectorRetriever,
@@ -116,7 +118,7 @@ def test_qdrant_retrieve_returns_documents():
     mock_client.collection_exists.return_value = True
     fake_point = MagicMock()
     fake_point.payload = {"content": "hello world", "metadata": {"k": "v"}, "doc_id": "doc-1"}
-    mock_client.search.return_value = [fake_point]
+    mock_client.query_points.return_value = MagicMock(points=[fake_point])
     fake_qdrant_client_mod.QdrantClient.return_value = mock_client
 
     with patch.dict(
@@ -128,6 +130,39 @@ def test_qdrant_retrieve_returns_documents():
     assert len(results) == 1
     assert results[0].content == "hello world"
     assert results[0].metadata == {"k": "v"}
+    assert results[0].id == "doc-1"
+
+
+def test_qdrant_retrieve_real_in_memory_instance():
+    """Real integration test (no mocks): qdrant-client's `:memory:` mode
+    runs a genuine embedded instance in-process, no Docker/network needed.
+    This caught a real bug during development -- QdrantRetriever originally
+    called the removed `client.search()` instead of `client.query_points()`
+    (renamed in a qdrant-client release after this code was first written),
+    which none of the mocked tests above would have caught since they mock
+    whatever method name the code happens to call."""
+    pytest.importorskip("qdrant_client")
+
+    retriever = QdrantRetriever(collection_name="docs", location=":memory:", embedding_dim=2)
+    retriever._embedder.embed = _fake_embed_fn(
+        {
+            "science topic": [1.0, 0.0],
+            "sports topic": [0.0, 1.0],
+            "physics is great": [0.9, 0.1],
+        }
+    )
+
+    retriever.add_documents(
+        [
+            Document(content="science topic", id="doc-1", metadata={"k": "v1"}),
+            Document(content="sports topic", id="doc-2", metadata={"k": "v2"}),
+        ]
+    )
+
+    results = retriever.retrieve("physics is great", top_k=1)
+
+    assert len(results) == 1
+    assert results[0].content == "science topic"
     assert results[0].id == "doc-1"
 
 
