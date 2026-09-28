@@ -28,6 +28,18 @@ def test_disallowed_keyword_blocks_output():
         guardrail.validate_output("The password is 12345")
 
 
+def test_disallowed_keyword_does_not_match_as_substring():
+    # "ass" must not block "class" -- keyword matching is word-boundary, not substring.
+    guardrail = Guardrail(name="safe", disallowed_keywords=["ass"])
+    guardrail.validate_input("Please explain this Python class.")
+
+
+def test_disallowed_pattern_invalid_regex_raises_clear_error():
+    guardrail = Guardrail(name="safe", disallowed_patterns=["(unclosed["])
+    with pytest.raises(ValueError, match="invalid disallowed_patterns"):
+        guardrail.validate_input("anything")
+
+
 def test_disallowed_pattern_blocks_input():
     guardrail = Guardrail(name="safe", disallowed_patterns=[r"\b\d{3}-\d{2}-\d{4}\b"])
     with pytest.raises(GuardrailViolationError):

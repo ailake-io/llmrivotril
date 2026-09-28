@@ -7,7 +7,10 @@ and budgeting rather than exact billing.
 
 from __future__ import annotations
 
+from threading import Lock
 from typing import Any
+
+_lock = Lock()
 
 # Prices in USD per 1,000,000 tokens.
 # "input"  = prompt tokens
@@ -37,31 +40,23 @@ _PRICES: dict[str, dict[str, dict[str, float]]] = {
 }
 
 
-def _normalize_model(model: str) -> str:
-    """Strip common date/version suffixes to improve match rates."""
-    model = model.lower().strip()
-    for suffix in ("-latest", "-preview", ":", "-"):
-        if model.endswith(suffix.rstrip("-")):
-            continue
-    return model
-
-
 def get_model_pricing(provider: str, model: str) -> dict[str, float] | None:
     """Return pricing for a specific provider/model, or ``None`` if unknown."""
-    provider_prices = _PRICES.get(provider.lower())
-    if provider_prices is None:
+    with _lock:
+        provider_prices = _PRICES.get(provider.lower())
+        if provider_prices is None:
+            return None
+
+        model_lower = model.lower()
+        if model_lower in provider_prices:
+            return provider_prices[model_lower]
+
+        # Try prefix matches (e.g. "gpt-4o-2024-08-06" -> "gpt-4o")
+        for known_model, prices in provider_prices.items():
+            if model_lower.startswith(known_model):
+                return prices
+
         return None
-
-    model_lower = model.lower()
-    if model_lower in provider_prices:
-        return provider_prices[model_lower]
-
-    # Try prefix matches (e.g. "gpt-4o-2024-08-06" -> "gpt-4o")
-    for known_model, prices in provider_prices.items():
-        if model_lower.startswith(known_model):
-            return prices
-
-    return None
 
 
 def estimate_cost(
@@ -84,18 +79,24 @@ def estimate_cost(
 
 
 def register_pricing(provider: str, model: str, input_price: float, output_price: float) -> None:
-    """Register or override pricing for a provider/model at runtime."""
+    """Register or override pricing for a provider/model at runtime.
+
+    ``_PRICES`` is process-wide, shared module state: this affects every
+    ``RivotrilAgent`` in the process, not just the caller's.
+    """
     provider_lower = provider.lower()
-    if provider_lower not in _PRICES:
-        _PRICES[provider_lower] = {}
-    _PRICES[provider_lower][model.lower()] = {
-        "input": input_price,
-        "output": output_price,
-    }
+    with _lock:
+        if provider_lower not in _PRICES:
+            _PRICES[provider_lower] = {}
+        _PRICES[provider_lower][model.lower()] = {
+            "input": input_price,
+            "output": output_price,
+        }
 
 
 def list_supported_models(provider: str | None = None) -> dict[str, Any]:
     """Return a dict of supported provider/model pricing."""
-    if provider is None:
-        return {k: dict(v) for k, v in _PRICES.items()}
-    return dict(_PRICES.get(provider.lower(), {}))
+    with _lock:
+        if provider is None:
+            return {k: dict(v) for k, v in _PRICES.items()}
+        return dict(_PRICES.get(provider.lower(), {}))

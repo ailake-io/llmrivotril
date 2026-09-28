@@ -9,6 +9,7 @@ when a semantic component is actually instantiated. Install the extra with::
 import logging
 import math
 from collections.abc import Sequence
+from threading import Lock
 from typing import Any
 
 from pydantic import BaseModel, Field, PrivateAttr
@@ -50,22 +51,28 @@ class SemanticTopicGuardrail(BaseModel):
 
     _embed_fn: Any | None = PrivateAttr(default=None)
     _topic_embeddings: list[EmbeddingVector] | None = PrivateAttr(default=None)
+    _load_lock: Lock = PrivateAttr(default_factory=Lock)
 
     def _load_model(self) -> None:
         """Lazy-load the sentence-transformers model and cache topic embeddings."""
         if self._embed_fn is not None:
             return
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise ImportError(
-                "sentence-transformers is required for semantic guardrails. "
-                "Install with: pip install llmrivotril[semantic]"
-            ) from exc
+        with self._load_lock:
+            if self._embed_fn is not None:
+                return
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise ImportError(
+                    "sentence-transformers is required for semantic guardrails. "
+                    "Install with: pip install llmrivotril[semantic]"
+                ) from exc
 
-        model = SentenceTransformer(self.embedding_model)
-        self._embed_fn = model.encode
-        self._topic_embeddings = [list(model.encode(topic)) for topic in self.allowed_topics]
+            model = SentenceTransformer(self.embedding_model)
+            embed_fn = model.encode
+            topic_embeddings = [list(model.encode(topic)) for topic in self.allowed_topics]
+            self._embed_fn = embed_fn
+            self._topic_embeddings = topic_embeddings
 
     def _embed(self, text: str) -> EmbeddingVector:
         """Encode ``text``; relies on the loaded model or an injected embed function."""
@@ -131,20 +138,24 @@ class EmbeddingFaithfulnessVerifier(BaseModel):
     similarity_threshold: float = 0.5
 
     _embed_fn: Any | None = PrivateAttr(default=None)
+    _load_lock: Lock = PrivateAttr(default_factory=Lock)
 
     def _load_model(self) -> None:
         if self._embed_fn is not None:
             return
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise ImportError(
-                "sentence-transformers is required for EmbeddingFaithfulnessVerifier. "
-                "Install with: pip install llmrivotril[semantic]"
-            ) from exc
+        with self._load_lock:
+            if self._embed_fn is not None:
+                return
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise ImportError(
+                    "sentence-transformers is required for EmbeddingFaithfulnessVerifier. "
+                    "Install with: pip install llmrivotril[semantic]"
+                ) from exc
 
-        model = SentenceTransformer(self.embedding_model)
-        self._embed_fn = model.encode
+            model = SentenceTransformer(self.embedding_model)
+            self._embed_fn = model.encode
 
     def _embed(self, text: str) -> EmbeddingVector:
         if self._embed_fn is None:
