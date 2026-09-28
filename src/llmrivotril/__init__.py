@@ -1,4 +1,4 @@
-from .agent import RivotrilAgent
+from .agent import AsyncStreamedStructuredResult, RivotrilAgent, StreamedStructuredResult
 from .cache import BaseCache, DiskCache, InMemoryCache, RedisCache
 from .exceptions import (
     GuardrailViolationError,
@@ -8,12 +8,15 @@ from .exceptions import (
 )
 from .guardrails import Guardrail
 from .memory import MemoryStore
+from .moderation import ModerationGuardrail
 from .pii import PIIRedactor
 from .plugins import discover_plugins, load_plugins
 from .pricing import estimate_cost, list_supported_models, register_pricing
 from .providers import (
     AnthropicProvider,
+    AzureOpenAIProvider,
     BaseProvider,
+    BedrockProvider,
     CohereProvider,
     GeminiProvider,
     OpenAIProvider,
@@ -23,14 +26,23 @@ from .rag import Document, RAGPipeline
 from .rag.chunkers import SimpleChunker
 from .rag.loaders import CSVLoader, HTMLLoader, MarkdownLoader, PDFLoader, TextLoader
 from .rag.retrievers import InMemoryEmbeddingRetriever, InMemoryKeywordRetriever
+from .rag.vector_stores import (
+    PgVectorRetriever,
+    PineconeRetriever,
+    QdrantRetriever,
+    WeaviateRetriever,
+)
 from .semantic import EmbeddingFaithfulnessVerifier, SemanticTopicGuardrail
 from .tools import ToolCall, ToolRegistry
 from .verifier import ModelBasedFaithfulnessVerifier
 
-__version__ = "0.0.6"
+__version__ = "0.0.9"
 __all__ = [
     "RivotrilAgent",
+    "StreamedStructuredResult",
+    "AsyncStreamedStructuredResult",
     "Guardrail",
+    "ModerationGuardrail",
     "MemoryStore",
     "BaseCache",
     "InMemoryCache",
@@ -61,10 +73,16 @@ __all__ = [
     "SimpleChunker",
     "InMemoryKeywordRetriever",
     "InMemoryEmbeddingRetriever",
+    "PgVectorRetriever",
+    "QdrantRetriever",
+    "WeaviateRetriever",
+    "PineconeRetriever",
     "BaseProvider",
     "OpenAIProvider",
+    "AzureOpenAIProvider",
     "AnthropicProvider",
     "CohereProvider",
     "GeminiProvider",
+    "BedrockProvider",
     "get_provider",
 ]

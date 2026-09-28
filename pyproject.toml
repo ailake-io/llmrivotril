@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmrivotril"
-version = "0.0.6"
+version = "0.0.9"
 description = "A lightweight framework to reduce LLM hallucinations, enforce guardrails, manage stateful memory, and monitor performance via local dashboard."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,8 +45,11 @@ cohere = [
 gemini = [
     "google-generativeai>=0.7.0",
 ]
+bedrock = [
+    "boto3>=1.28.0",
+]
 providers = [
-    "llmrivotril[anthropic,cohere,gemini]",
+    "llmrivotril[anthropic,cohere,gemini,bedrock]",
 ]
 rag = [
     "beautifulsoup4>=4.12.0",
@@ -54,6 +57,21 @@ rag = [
 ]
 redis = [
     "redis>=5.0.0",
+]
+pgvector = [
+    "psycopg[binary]>=3.1.0",
+]
+qdrant = [
+    "qdrant-client>=1.7.0",
+]
+weaviate = [
+    "weaviate-client>=4.4.0",
+]
+pinecone = [
+    "pinecone>=5.0.0",
+]
+vector-stores = [
+    "llmrivotril[semantic,pgvector,qdrant,weaviate,pinecone]",
 ]
 ci = [
     "pytest>=7.0.0",

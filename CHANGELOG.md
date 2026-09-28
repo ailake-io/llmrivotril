@@ -7,6 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-09-28
+
+### Added
+
+- `AnthropicProvider`/`CohereProvider`/`GeminiProvider` now implement
+  `stream()`/`astream()` (previously unimplemented, raised
+  `NotImplementedError`), each using that provider's native streaming API
+  and yielding plain text chunks. Not verified against a live account --
+  same caveat as the Azure/Bedrock adapters.
+- `run_stream()`/`run_stream_async()` now accept `response_model=`. Returns
+  a `StreamedStructuredResult`/`AsyncStreamedStructuredResult` instead of a
+  plain iterator: iterate it for the raw JSON text as it streams, and read
+  `.result` after the loop ends for the validated `response_model`
+  instance (partial JSON isn't a valid model, so there's nothing to
+  validate until the stream is done). Can't be combined with `tools=`
+  (raises `ValueError`).
+
+## [0.0.8] - 2026-09-28
+
+### Added
+
+- `ModerationGuardrail`: flags input/output via OpenAI's moderation
+  endpoint, for adversarial/unsafe content the local keyword/regex/topic
+  guardrails aren't meant to catch. Fails closed by default (`fail_open=`
+  to opt out).
+- `RIVOTRIL_DASHBOARD_TOKENS`: multiple named bearer tokens for the
+  dashboard (`"label1:token1,label2:token2"`) instead of one shared secret;
+  each valid token's label is logged on access. `RIVOTRIL_DASHBOARD_TOKEN`
+  (singular) still works as a single unlabeled token.
+- `AzureOpenAIProvider` and `BedrockProvider`: new provider adapters.
+  Azure OpenAI uses the `openai` SDK's dedicated `AzureOpenAI`/
+  `AsyncAzureOpenAI` clients (no extra install). Bedrock uses the Bedrock
+  Runtime Converse API for one request shape across model families
+  (requires `llmrivotril[bedrock]`); `tools=` isn't translated to Converse's
+  tool-call format yet, and `acomplete`/`astream` run the synchronous boto3
+  call in a worker thread since boto3 has no official async client. Neither
+  adapter has been verified against a live Azure/AWS account -- built from
+  documented API shapes and covered by mocked unit tests only.
+- `PgVectorRetriever`, `QdrantRetriever`, `WeaviateRetriever`,
+  `PineconeRetriever`: external vector-store retrievers for RAG beyond
+  in-memory scale, behind `llmrivotril[pgvector|qdrant|weaviate|pinecone]`
+  (or `llmrivotril[vector-stores]` for all four). Also not verified against
+  a live service -- same caveat as the two new providers.
+
+### Fixed
+
+- The non-streaming multi-round tool-calling loop
+  (`_handle_tool_calls`/`_handle_tool_calls_async`) passed `tools=None` on
+  every follow-up call after the first, so a conversation needing a second
+  tool call in the same turn could never request one -- the model was never
+  offered any tool schemas past round one.
+
+## [0.0.7] - 2026-09-28
+
+### Added
+
+- `InMemoryEmbeddingRetriever(cache_path=...)`: content-hash-keyed embedding
+  cache persisted to JSON, so re-ingesting unchanged document content across
+  process restarts skips recomputing its embedding.
+- `run_stream()`/`run_stream_async()` accept `tools=`; a turn where the model
+  answers directly still streams token by token, and a turn where it calls a
+  tool falls back to a single blocking round-trip for that turn.
+- `MemoryStore(auto_save_path=...)` / `RIVOTRIL_MEMORY_PATH`: persist
+  conversation history to a JSON file automatically, mirroring
+  `RIVOTRIL_METRICS_PATH`/`RIVOTRIL_CACHE_PATH`.
+- `RAGPipeline.aingest()`/`RAGPipeline.aquery()`: async wrappers (via a
+  worker thread) so ingestion/retrieval don't block the event loop inside
+  `run_async()`.
+- `py.typed` marker (PEP 561) so downstream type checkers pick up this
+  package's types.
+- Dashboard endpoints are now rate-limited per client IP
+  (`RIVOTRIL_DASHBOARD_RATE_LIMIT_MAX_CALLS`/`_PER_SECONDS`).
+
+### Fixed
+
+- `InMemoryEmbeddingRetriever.retrieve()` scored documents with a pure-Python
+  cosine-similarity loop; switched to a cached numpy matrix (~5x faster at a
+  few thousand documents), with the pure-Python path kept as a fallback when
+  numpy isn't installed.
+- `InMemoryEmbeddingRetriever._load_model()` had the same unlocked
+  lazy-model-load race already fixed in `semantic.py`; added the same
+  double-checked lock.
+- Deleted `InMemoryKeywordRetriever`'s duplicated `[a-z0-9]+` tokenizer/
+  stopword list (same accent-splitting bug as `verifier.py`); it now reuses
+  the shared, fixed `_tokenize`.
+- Test isolation: `tests/test_config.py` set `os.environ[...]` directly and
+  only had a before-test cleanup fixture, so a var left set by its last test
+  leaked into whatever test module pytest ran next. Also fixed a subtler
+  variant of the same bug in the fix itself: calling `monkeypatch.delenv()`
+  from *inside* another fixture's post-`yield` teardown gets undone by
+  monkeypatch's own finalizer (which runs afterwards, in reverse dependency
+  order) -- switched to plain `os.environ.pop()` for this cleanup.
+
+### Documentation
+
+- Documented that `plugins="auto"` executes code from any installed
+  package's entry points, with no sandboxing.
+- Documented that Azure OpenAI and AWS Bedrock are not supported via
+  `base_url` (they need a different client/auth/request shape, not just a
+  different endpoint).
+- Documented the local dashboard's trust model (single shared token, no
+  per-user accounts -- not for multi-tenant or public exposure).
+
 ## [0.0.6] - 2026-09-27
 
 ### Added

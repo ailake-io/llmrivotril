@@ -6,11 +6,27 @@ from llmrivotril.config import load_config, load_env_config, load_file_config
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
-    """Remove RIVOTRIL_* variables before each test."""
-    for key in list(os.environ):
-        if key.startswith("RIVOTRIL_"):
-            monkeypatch.delenv(key, raising=False)
+def _clean_env():
+    """Remove RIVOTRIL_* variables before and after each test.
+
+    Tests in this file set os.environ[...] directly, so cleanup here also
+    uses os.environ directly (not monkeypatch.delenv): monkeypatch records an
+    undo action for every call and replays it when its own fixture tears
+    down, which happens *after* this fixture's post-yield code runs (reverse
+    of setup order) -- so a monkeypatch.delenv() here would immediately be
+    undone, restoring the very value being cleaned up. Without the
+    after-test cleanup, a var left set by the last test in this file leaks
+    into whatever test module pytest collects next.
+    """
+
+    def _clear() -> None:
+        for key in list(os.environ):
+            if key.startswith("RIVOTRIL_"):
+                del os.environ[key]
+
+    _clear()
+    yield
+    _clear()
 
 
 @pytest.fixture
@@ -201,3 +217,5 @@ def test_load_file_config_reads_yml_extension(temp_config):
 
     config = load_file_config()
     assert config["model"] == "yml-model"
+
+
