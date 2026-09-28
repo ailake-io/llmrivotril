@@ -56,3 +56,12 @@ def test_no_pii_returns_original():
     redactor = PIIRedactor()
     text = "Just a regular sentence."
     assert redactor.redact(text) == text
+
+
+def test_redact_merges_overlapping_spans_from_different_patterns():
+    # Two patterns whose matches overlap ("abc123" and "123xyz" share "123").
+    # Replacing each span independently by raw offsets corrupts the string;
+    # they must be merged into a single span first.
+    redactor = PIIRedactor(patterns={"a": r"abc\d\d\d", "b": r"\d\d\dxyz"})
+    assert redactor.redact("abc123xyz") == "[REDACTED]"
+    assert redactor.redact("before abc123xyz after") == "before [REDACTED] after"

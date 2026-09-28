@@ -63,6 +63,27 @@ def test_keyword_overlap_rejects_ungrounded_response():
     assert verifier.verify(response, context) is False
 
 
+def test_keyword_overlap_accepts_grounded_response_in_portuguese():
+    verifier = KeywordOverlapVerifier(threshold=0.1)
+    context = "A capital da França é Paris e a Torre Eiffel fica lá."
+    response = "Paris é a capital da França."
+    assert verifier.verify(response, context) is True
+
+
+def test_keyword_overlap_rejects_ungrounded_response_in_portuguese():
+    verifier = KeywordOverlapVerifier(threshold=0.1)
+    context = "A capital da França é Paris."
+    response = "Eu adoro jogar futebol nos fins de semana."
+    assert verifier.verify(response, context) is False
+
+
+def test_tokenize_preserves_accented_words():
+    from llmrivotril.verifier import _tokenize
+
+    # [a-z0-9]+ would previously split "informação" into "informa" + "o".
+    assert _tokenize("A informação não é confidencial") == {"informação", "confidencial"}
+
+
 def test_citation_verifier_accepts_quoted_text():
     verifier = CitationVerifier()
     context = "The speed of light is 299,792 km/s."

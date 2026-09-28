@@ -333,7 +333,19 @@ from llmrivotril import RivotrilAgent, DiskCache
 
 agent = RivotrilAgent(
     api_key="sk-...",
-    cache=DiskCache("llm_cache.pkl"),
+    cache=DiskCache("llm_cache.sqlite3"),
+)
+```
+
+For multi-process or distributed deployments, use `RedisCache` (requires
+`pip install "llmrivotril[redis]"`):
+
+```python
+from llmrivotril import RivotrilAgent, RedisCache
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    cache=RedisCache(url="redis://localhost:6379/0"),
 )
 ```
 
@@ -396,6 +408,10 @@ agent = RivotrilAgent(
 
 agent.run("My email is alice@example.com")
 ```
+
+Redaction runs before a response is written to `cache=` (`InMemoryCache`,
+`DiskCache`, or `RedisCache`), so raw PII is never persisted at rest when
+`redact_pii=True`.
 
 You can also use `PIIRedactor` directly to scan or sanitize text:
 

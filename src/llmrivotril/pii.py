@@ -80,19 +80,29 @@ class PIIRedactor:
 
     def redact(self, text: str, replacement: str = "[REDACTED]") -> str:
         """Return a copy of ``text`` with detected PII replaced."""
-        # Collect all matches, filter credit cards, sort by position descending
-        matches: list[tuple[int, int, str]] = []
+        spans: list[tuple[int, int]] = []
         for name, pattern in self._compiled.items():
             for match in pattern.finditer(text):
                 if name == "credit_card" and not self._filter_credit_card(match):
                     continue
-                matches.append((match.start(), match.end(), replacement))
+                spans.append((match.start(), match.end()))
 
-        if not matches:
+        if not spans:
             return text
 
-        matches.sort(key=lambda x: x[0], reverse=True)
+        # Merge overlapping/adjacent spans from different patterns so each
+        # region of text is replaced exactly once; replacing unmerged
+        # overlapping spans independently corrupts the string.
+        spans.sort()
+        merged: list[tuple[int, int]] = [spans[0]]
+        for start, end in spans[1:]:
+            last_start, last_end = merged[-1]
+            if start <= last_end:
+                merged[-1] = (last_start, max(last_end, end))
+            else:
+                merged.append((start, end))
+
         result = text
-        for start, end, repl in matches:
-            result = result[:start] + repl + result[end:]
+        for start, end in reversed(merged):
+            result = result[:start] + replacement + result[end:]
         return result

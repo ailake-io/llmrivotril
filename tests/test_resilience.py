@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 
 import pytest
@@ -69,6 +70,55 @@ def test_circuit_breaker_half_open_then_closes():
     result = cb.call(lambda: "ok")
     assert result == "ok"
     assert cb.state == CircuitState.CLOSED
+
+
+def test_circuit_breaker_half_open_allows_single_concurrent_probe():
+    """Regression: concurrent callers must not all slip through as HALF_OPEN probes.
+
+    Reading ``state`` (which lazily flips OPEN->HALF_OPEN) and deciding whether
+    to call ``fn`` used to be two separate locked steps, so multiple threads
+    could all observe HALF_OPEN and dispatch their own probe at once.
+    """
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.05)
+
+    def fail() -> None:
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError):
+        cb.call(fail)
+
+    time.sleep(0.06)  # circuit is now HALF_OPEN
+
+    call_count = 0
+    count_lock = threading.Lock()
+
+    def slow_probe() -> str:
+        nonlocal call_count
+        with count_lock:
+            call_count += 1
+        time.sleep(0.05)
+        return "ok"
+
+    results: list[str] = []
+    results_lock = threading.Lock()
+
+    def worker() -> None:
+        try:
+            result = cb.call(slow_probe)
+        except CircuitBreakerOpenError:
+            result = "rejected"
+        with results_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert call_count == 1
+    assert results.count("ok") == 1
+    assert results.count("rejected") == 4
 
 
 def test_circuit_breaker_only_counts_expected_exceptions():

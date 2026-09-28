@@ -236,6 +236,26 @@ class RivotrilAgent:
             return text
         return self.pii_redactor.redact(text)
 
+    def _redact_response(
+        self, response: Any, response_model: type[BaseModel] | None
+    ) -> Any:
+        """Redact PII in-place on a ``ProviderResponse`` before it is cached or returned.
+
+        Structured responses are redacted by round-tripping through JSON so the
+        rebuilt model never carries the raw fields; without this, a cached or
+        returned structured response would leak unredacted PII even with
+        ``redact_pii=True``.
+        """
+        if not self.redact_pii or not isinstance(response, ProviderResponse):
+            return response
+        if response.structured is not None:
+            model_cls = response_model or type(response.structured)
+            redacted_json = self.pii_redactor.redact(response.structured.model_dump_json())
+            response.structured = model_cls.model_validate_json(redacted_json)
+        elif response.content is not None:
+            response.content = self.pii_redactor.redact(response.content)
+        return response
+
     def _estimate_execution_cost(
         self,
         response: Any,
@@ -478,6 +498,7 @@ class RivotrilAgent:
             return self._execute_unstructured(messages, tools)
 
         response = self.circuit_breaker.call(_call)
+        response = self._redact_response(response, response_model)
         self._cache_store(messages, response_model, response, tools)
         return response
 
@@ -502,6 +523,7 @@ class RivotrilAgent:
             return await self._execute_unstructured_async(messages, tools)
 
         response = await self.circuit_breaker.call_async(_call)
+        response = self._redact_response(response, response_model)
         self._cache_store(messages, response_model, response, tools)
         return response
 

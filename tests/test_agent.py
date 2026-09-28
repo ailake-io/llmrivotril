@@ -330,7 +330,7 @@ def test_agent_uses_in_memory_cache():
 
 
 def test_agent_uses_disk_cache_via_env(tmp_path, monkeypatch):
-    cache_path = tmp_path / "agent-cache.pkl"
+    cache_path = tmp_path / "agent-cache.sqlite3"
     monkeypatch.setenv("RIVOTRIL_CACHE_PATH", str(cache_path))
 
     agent, provider = _make_agent()
@@ -424,3 +424,31 @@ def test_agent_redacts_pii_in_input_and_output():
     assert "[REDACTED]" in result
     # Memory should also be redacted
     assert "john@example.com" not in str(agent.memory.get_context())
+
+
+def test_agent_redacts_pii_in_structured_response():
+    agent, provider = _make_agent(redact_pii=True)
+    provider._complete_mock.return_value = ProviderResponse(
+        structured=Answer(text="Contact john@example.com for details")
+    )
+
+    result = agent.run("question", response_model=Answer)
+
+    assert "john@example.com" not in result.text
+    assert "[REDACTED]" in result.text
+
+
+def test_agent_does_not_cache_raw_pii():
+    from llmrivotril import InMemoryCache
+
+    cache = InMemoryCache()
+    agent, provider = _make_agent(redact_pii=True, cache=cache)
+    provider._complete_mock.return_value = ProviderResponse(
+        content="User email is john@example.com"
+    )
+
+    agent.run("hi")
+
+    assert cache._store, "expected the response to have been cached"
+    for value, _expires_at in cache._store.values():
+        assert "john@example.com" not in value.text

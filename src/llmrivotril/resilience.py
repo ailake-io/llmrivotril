@@ -156,21 +156,49 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._last_failure_time: float | None = None
+        self._half_open_probe_in_flight = False
         self._lock = Lock()
 
     @property
     def state(self) -> CircuitState:
         with self._lock:
-            if self._state == CircuitState.OPEN:
-                if self._last_failure_time is None:
-                    return CircuitState.OPEN
-                elapsed = time.monotonic() - self._last_failure_time
-                if elapsed >= self.recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
+            self._maybe_transition_to_half_open()
             return self._state
 
+    def _maybe_transition_to_half_open(self) -> None:
+        """Flip OPEN -> HALF_OPEN once the recovery timeout has elapsed.
+
+        Caller must hold ``self._lock``.
+        """
+        if self._state != CircuitState.OPEN:
+            return
+        if self._last_failure_time is None:
+            return
+        elapsed = time.monotonic() - self._last_failure_time
+        if elapsed >= self.recovery_timeout:
+            self._state = CircuitState.HALF_OPEN
+
+    def _acquire_permission(self) -> bool:
+        """Atomically decide whether this call may proceed.
+
+        While HALF_OPEN, only a single in-flight call is allowed through as a
+        probe; concurrent callers are rejected until that probe resolves.
+        Checking ``state`` and mutating it as two separate locked sections (as
+        a naive implementation might) lets multiple threads all observe
+        HALF_OPEN and dispatch a probe simultaneously, defeating the "single
+        probe" guarantee under concurrent load -- so this does both atomically.
+        """
+        with self._lock:
+            self._maybe_transition_to_half_open()
+            if self._state == CircuitState.CLOSED:
+                return True
+            if self._state == CircuitState.HALF_OPEN and not self._half_open_probe_in_flight:
+                self._half_open_probe_in_flight = True
+                return True
+            return False
+
     def call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
-        if self.state == CircuitState.OPEN:
+        if not self._acquire_permission():
             raise CircuitBreakerOpenError("Circuit breaker is OPEN")
 
         try:
@@ -183,7 +211,7 @@ class CircuitBreaker:
         return result
 
     async def call_async(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
-        if self.state == CircuitState.OPEN:
+        if not self._acquire_permission():
             raise CircuitBreakerOpenError("Circuit breaker is OPEN")
 
         try:
@@ -197,6 +225,7 @@ class CircuitBreaker:
 
     def _record_failure(self) -> None:
         with self._lock:
+            self._half_open_probe_in_flight = False
             self._failure_count += 1
             self._last_failure_time = time.monotonic()
             if self._failure_count >= self.failure_threshold:
@@ -207,6 +236,7 @@ class CircuitBreaker:
     def _record_success(self) -> None:
         with self._lock:
             previous_state = self._state
+            self._half_open_probe_in_flight = False
             self._failure_count = 0
             self._last_failure_time = None
             self._state = CircuitState.CLOSED

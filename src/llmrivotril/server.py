@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,7 @@ def _verify_dashboard_token(authorization: str | None = Header(None)) -> None:
             detail="Missing Authorization header",
         )
     scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or token != DASHBOARD_TOKEN:
+    if scheme.lower() != "bearer" or not secrets.compare_digest(token, DASHBOARD_TOKEN):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
