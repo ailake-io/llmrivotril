@@ -7,21 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- CI and release workflows now use `.github/constraints-ci.txt` to keep lint,
-  type-check, test, and packaging tool versions reproducible without pinning
-  runtime/provider dependencies for downstream applications.
-- LangChain, CrewAI and Google ADK integrations now support streaming through
-  their native adapter protocols; LangChain also supports `bind_tools()`.
-- Prompt content can contain text, image, audio and document parts. OpenAI,
-  Azure, Anthropic, Gemini and Bedrock preserve supported rich content while
-  guardrails, PII redaction, token accounting and memory use a safe text view.
-- Bedrock Converse streaming now accumulates `toolUse` deltas and executes the
-  generic agent tool loop.
+## [0.1.0] - 2026-09-29
 
 ### Added
 
+- First release candidate for PyPI distribution.
 - Framework-integration adapters for CrewAI (`BaseLLM`), AG2/pyautogen
   (`ModelClient` protocol, no extra dependency), LangChain/LangGraph
   (`BaseChatModel`), and Google ADK (`BaseLlm`) under
@@ -47,12 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the existing exact-match backends) so a fuzzy-matching cache can see the
     raw prompt text; this is a backward-compatible addition, not a breaking
     change to the interface.
-
-## [0.1.0] - 2026-09-28
-
-### Added
-
-- First release candidate for PyPI distribution.
+- Brazilian Portuguese translations (`*.pt-BR.md`) of the README and every
+  public doc, each cross-linked with its English original.
 - RAG context injection, deterministic vector-store identifiers, protected
   memory persistence, cache namespacing, and expanded telemetry.
 - Explicit grounding failure policies and provider-specific retry handling.
@@ -68,6 +54,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PostgreSQL, Qdrant and Pinecone use native metadata filters when available;
   Weaviate now supports native filters for explicitly configured flattened
   metadata fields and keeps a client-side fallback for other fields.
+
+### Changed
+
+- CI and release workflows now use `.github/constraints-ci.txt` to keep lint,
+  type-check, test, and packaging tool versions reproducible without pinning
+  runtime/provider dependencies for downstream applications.
+- LangChain, CrewAI and Google ADK integrations now support streaming through
+  their native adapter protocols; LangChain also supports `bind_tools()`.
+- Prompt content can contain text, image, audio and document parts. OpenAI,
+  Azure, Anthropic, Gemini and Bedrock preserve supported rich content while
+  guardrails, PII redaction, token accounting and memory use a safe text view.
+- Bedrock Converse streaming now accumulates `toolUse` deltas and executes the
+  generic agent tool loop.
 
 ### Fixed
 
