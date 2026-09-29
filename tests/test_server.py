@@ -99,6 +99,8 @@ def test_dashboard_does_not_use_cdn():
     html = response.text
     assert "cdn.tailwindcss.com" not in html
     assert "/static/tailwind.min.js" in html
+    assert "innerHTML" not in html
+    assert "textContent" in html
 
 
 def test_parse_dashboard_tokens_empty_when_unset(monkeypatch):
@@ -138,6 +140,7 @@ def test_prometheus_metrics_endpoint():
     assert "llmrivotril_requests_total" in text
     assert "llmrivotril_guardrail_blocks_total" in text
     assert "llmrivotril_hallucinations_detected_total" in text
+    assert "llmrivotril_errors_total" in text
     assert "llmrivotril_tokens_consumed_total" in text
     assert "llmrivotril_success_rate" in text
     assert "llmrivotril_avg_latency_seconds" in text

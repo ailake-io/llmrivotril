@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 from threading import Lock
@@ -17,6 +18,7 @@ class MetricsCollector:
         self.requests_total = 0
         self.guardrail_blocks = 0
         self.hallucinations_detected = 0
+        self.errors_total = 0
         self.total_tokens_consumed = 0
         self.total_cost_usd: float | None = None
         self.latencies: list[float] = []
@@ -48,6 +50,8 @@ class MetricsCollector:
                 self.guardrail_blocks += 1
             if hallucination_blocked:
                 self.hallucinations_detected += 1
+            if error is not None and not guardrail_blocked and not hallucination_blocked:
+                self.errors_total += 1
 
             self.logs.insert(
                 0,
@@ -74,6 +78,7 @@ class MetricsCollector:
             self.requests_total = 0
             self.guardrail_blocks = 0
             self.hallucinations_detected = 0
+            self.errors_total = 0
             self.total_tokens_consumed = 0
             self.total_cost_usd = None
             self.latencies.clear()
@@ -82,15 +87,16 @@ class MetricsCollector:
     def get_summary(self) -> dict[str, Any]:
         with self._lock:
             avg_latency = sum(self.latencies) / len(self.latencies) if self.latencies else 0.0
-            blocked = self.guardrail_blocks + self.hallucinations_detected
+            failed = self.guardrail_blocks + self.hallucinations_detected + self.errors_total
             if self.requests_total > 0:
-                success_rate = max(0.0, (self.requests_total - blocked) / self.requests_total * 100)
+                success_rate = max(0.0, (self.requests_total - failed) / self.requests_total * 100)
             else:
                 success_rate = 100.0
             return {
                 "requests_total": self.requests_total,
                 "guardrail_blocks": self.guardrail_blocks,
                 "hallucinations_detected": self.hallucinations_detected,
+                "errors_total": self.errors_total,
                 "total_tokens_consumed": self.total_tokens_consumed,
                 "total_cost_usd": self.total_cost_usd,
                 "avg_latency": round(avg_latency, 3),
@@ -117,6 +123,7 @@ class MetricsCollector:
             self.requests_total = data.get("requests_total", 0)
             self.guardrail_blocks = data.get("guardrail_blocks", 0)
             self.hallucinations_detected = data.get("hallucinations_detected", 0)
+            self.errors_total = data.get("errors_total", 0)
             self.total_tokens_consumed = data.get("total_tokens_consumed", 0)
             self.total_cost_usd = data.get("total_cost_usd", None)
             self.latencies = data.get("latencies", []).copy()
@@ -136,7 +143,16 @@ class MetricsCollector:
         """Persist the current state to a JSON file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(self.to_dict(), handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary_path.replace(path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def load_from_json(self, path: str | Path) -> None:
         """Restore state from a JSON file created by ``save_to_json``."""

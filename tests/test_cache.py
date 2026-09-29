@@ -64,6 +64,17 @@ def test_cache_key_differs_by_model():
     assert cache_key(messages, "gpt-4o-mini") != cache_key(messages, "gpt-4")
 
 
+def test_cache_key_differs_by_provider_and_endpoint():
+    messages = [{"role": "user", "content": "hello"}]
+
+    assert cache_key(messages, "model", provider_name="openai") != cache_key(
+        messages, "model", provider_name="anthropic"
+    )
+    assert cache_key(messages, "model", base_url="http://one") != cache_key(
+        messages, "model", base_url="http://two"
+    )
+
+
 def test_in_memory_cache_get_set():
     cache = InMemoryCache()
     cache.set("k", "v")

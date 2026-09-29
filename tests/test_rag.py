@@ -251,7 +251,7 @@ def test_rag_pipeline_summary():
 
 def test_markdown_loader_as_text_loader_extension():
     loader = TextLoader(extensions={".md"})
-    docs = loader.load(Path(__file__).parent / ".." / "docs" / "usage.md")
+    docs = loader.load(Path(__file__).parent / ".." / "docs" / "rag.md")
     if docs:
         assert docs[0].metadata["type"] == "text"
 

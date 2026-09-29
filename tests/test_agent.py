@@ -177,6 +177,21 @@ def test_agent_accepts_multiple_context_sources():
     assert result == "Paris is the capital."
 
 
+def test_agent_includes_context_sources_in_provider_messages():
+    agent, provider = _make_agent()
+    provider._complete_mock.return_value = ProviderResponse(content="Paris")
+
+    agent.run("What is the capital?", context_sources="France's capital is Paris.")
+
+    messages = provider._complete_mock.call_args.kwargs["messages"]
+    assert any(
+        message["role"] == "system"
+        and "France's capital is Paris." in message["content"]
+        and "retrieved_context" in message["content"]
+        for message in messages
+    )
+
+
 def test_agent_uses_env_config(monkeypatch):
     monkeypatch.setenv("RIVOTRIL_MODEL", "gpt-4o")
     monkeypatch.setenv("RIVOTRIL_REQUEST_TIMEOUT", "20")

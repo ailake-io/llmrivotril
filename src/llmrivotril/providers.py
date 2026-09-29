@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import queue as queue_module
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -1022,28 +1021,46 @@ class BedrockProvider(BaseProvider):
         genuine incremental delivery rather than blocking for the whole
         response before yielding anything.
         """
-        chunk_queue: queue_module.Queue[Any] = queue_module.Queue()
+        loop = asyncio.get_running_loop()
+        chunk_queue: asyncio.Queue[Any] = asyncio.Queue()
         sentinel = object()
+        stopped = threading.Event()
+
+        def _enqueue(item: Any) -> None:
+            if stopped.is_set():
+                return
+            try:
+                loop.call_soon_threadsafe(chunk_queue.put_nowait, item)
+            except RuntimeError:
+                # The consumer may have been cancelled and the event loop may
+                # already be closing. There is no useful work left for the
+                # producer in that case.
+                stopped.set()
 
         def _produce() -> None:
             try:
                 for chunk in self.stream(messages, model, **kwargs):
-                    chunk_queue.put(chunk)
+                    if stopped.is_set():
+                        break
+                    _enqueue(chunk)
             except Exception as exc:  # noqa: BLE001 - forwarded to the async caller below
-                chunk_queue.put(exc)
+                _enqueue(exc)
             finally:
-                chunk_queue.put(sentinel)
+                _enqueue(sentinel)
 
         thread = threading.Thread(target=_produce, daemon=True)
         thread.start()
 
-        while True:
-            item = await asyncio.to_thread(chunk_queue.get)
-            if item is sentinel:
-                break
-            if isinstance(item, Exception):
-                raise item
-            yield item
+        try:
+            while True:
+                item = await chunk_queue.get()
+                if item is sentinel:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                yield item
+        finally:
+            stopped.set()
 
 
 _PROVIDER_REGISTRY: dict[str, Callable[..., BaseProvider]] = {

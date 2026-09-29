@@ -83,6 +83,29 @@ def test_pgvector_connection_is_cached():
     fake_psycopg.connect.assert_called_once()
 
 
+def test_pgvector_uses_stable_id_when_document_has_no_id():
+    retriever = PgVectorRetriever(dsn="postgresql://localhost/test")
+    retriever._embedder.embed = _fake_embed_fn({"hello": [0.1, 0.2]})
+
+    fake_psycopg = MagicMock()
+    mock_conn = MagicMock()
+    fake_psycopg.connect.return_value = mock_conn
+
+    with patch.dict(sys.modules, {"psycopg": fake_psycopg}):
+        retriever.add_documents([Document(content="hello")])
+
+    insert_call = mock_conn.execute.call_args_list[-1]
+    assert (
+        insert_call.args[1][0]
+        == "doc-2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    )
+
+
+def test_pgvector_rejects_unsafe_table_name():
+    with pytest.raises(ValueError, match="table_name"):
+        PgVectorRetriever(dsn="postgresql://localhost/test", table_name="docs; DROP TABLE users")
+
+
 # --- QdrantRetriever ---
 
 
@@ -106,6 +129,30 @@ def test_qdrant_add_documents_upserts_points():
     mock_client.upsert.assert_called_once()
     upsert_kwargs = mock_client.upsert.call_args.kwargs
     assert upsert_kwargs["collection_name"] == "docs"
+
+
+def test_qdrant_uses_stable_id_for_documents_without_id():
+    retriever = QdrantRetriever(collection_name="docs", location=":memory:")
+    retriever._embedder.embed = _fake_embed_fn({"hello": [0.1, 0.2]})
+
+    fake_qdrant_client_mod = MagicMock()
+    fake_models_mod = MagicMock()
+    mock_client = MagicMock()
+    mock_client.collection_exists.return_value = True
+    fake_qdrant_client_mod.QdrantClient.return_value = mock_client
+
+    with patch.dict(
+        sys.modules,
+        {"qdrant_client": fake_qdrant_client_mod, "qdrant_client.models": fake_models_mod},
+    ):
+        retriever.add_documents([Document(content="hello")])
+
+    fake_models_mod.PointStruct.assert_called_once()
+    point_kwargs = fake_models_mod.PointStruct.call_args.kwargs
+    assert str(point_kwargs["id"]) == "93064a0c-9008-5398-9624-9b7d551fb797"
+    assert point_kwargs["payload"]["doc_id"] == (
+        "doc-2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    )
 
 
 def test_qdrant_retrieve_returns_documents():
@@ -186,6 +233,8 @@ def test_weaviate_add_documents_batches_inserts():
     mock_batch.add_object.assert_called_once()
     call_kwargs = mock_batch.add_object.call_args.kwargs
     assert call_kwargs["properties"]["content"] == "hello"
+    assert call_kwargs["properties"]["doc_id"].startswith("doc-")
+    assert call_kwargs["uuid"]
 
 
 def test_weaviate_retrieve_returns_documents():
@@ -245,6 +294,21 @@ def test_pinecone_add_documents_upserts_vectors():
     assert vectors[0]["id"] == "doc-1"
     assert vectors[0]["metadata"]["content"] == "hello"
     assert vectors[0]["metadata"]["k"] == "v"
+
+
+def test_pinecone_uses_stable_id_for_documents_without_id():
+    retriever = PineconeRetriever(api_key="test-key", index_name="docs")
+    retriever._embedder.embed = _fake_embed_fn({"hello": [0.1, 0.2]})
+
+    fake_pinecone_mod = MagicMock()
+    mock_index = MagicMock()
+    fake_pinecone_mod.Pinecone.return_value.Index.return_value = mock_index
+
+    with patch.dict(sys.modules, {"pinecone": fake_pinecone_mod}):
+        retriever.add_documents([Document(content="hello")])
+
+    vector = mock_index.upsert.call_args.kwargs["vectors"][0]
+    assert vector["id"] == "doc-2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 
 
 def test_pinecone_retrieve_returns_documents():

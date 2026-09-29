@@ -74,9 +74,7 @@ def _get_rate_limiter(client_id: str) -> RateLimiter:
         if limiter is not None:
             _rate_limiters.move_to_end(client_id)
             return limiter
-        limiter = RateLimiter(
-            max_calls=_RATE_LIMIT_MAX_CALLS, per_seconds=_RATE_LIMIT_PER_SECONDS
-        )
+        limiter = RateLimiter(max_calls=_RATE_LIMIT_MAX_CALLS, per_seconds=_RATE_LIMIT_PER_SECONDS)
         _rate_limiters[client_id] = limiter
         if len(_rate_limiters) > _MAX_TRACKED_CLIENTS:
             _rate_limiters.popitem(last=False)
@@ -91,6 +89,7 @@ def _enforce_rate_limit(request: Request) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded",
         )
+
 
 app = FastAPI(title="LLM-Rivotril Local Dashboard")
 
@@ -185,6 +184,12 @@ def get_prometheus_metrics() -> str:
         "llmrivotril_hallucinations_detected_total",
         summary["hallucinations_detected"],
         "Total number of responses blocked by grounding verification",
+        "counter",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_errors_total",
+        summary["errors_total"],
+        "Total number of requests that failed without a policy block",
         "counter",
     )
     output += _format_prometheus_line(

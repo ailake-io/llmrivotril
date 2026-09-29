@@ -21,6 +21,9 @@ All four compute embeddings the same way as ``InMemoryEmbeddingRetriever``
 
 import json
 import logging
+import re
+import uuid
+from hashlib import sha256
 from threading import Lock
 from typing import Any
 
@@ -28,6 +31,21 @@ from .document import Document
 from .retrievers import BaseRetriever
 
 logger = logging.getLogger("llmrivotril")
+
+_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _stable_document_id(doc: Document) -> str:
+    """Return an ID that remains stable across processes and restarts."""
+    if doc.id:
+        return doc.id
+    digest = sha256(doc.content.encode("utf-8")).hexdigest()
+    return f"doc-{digest}"
+
+
+def _stable_uuid(document_id: str) -> uuid.UUID:
+    """Map a document ID to a deterministic UUID for Weaviate."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"llmrivotril:{document_id}")
 
 
 class _SentenceTransformerEmbedder:
@@ -76,6 +94,13 @@ class PgVectorRetriever(BaseRetriever):
         embedding_model: str = "all-MiniLM-L6-v2",
         embedding_dim: int = 384,
     ) -> None:
+        if not _SQL_IDENTIFIER.fullmatch(table_name):
+            raise ValueError(
+                "table_name must contain only letters, numbers, and underscores, "
+                "and must not start with a number"
+            )
+        if embedding_dim <= 0:
+            raise ValueError("embedding_dim must be positive")
         self.dsn = dsn
         self.table_name = table_name
         self.embedding_dim = embedding_dim
@@ -113,7 +138,7 @@ class PgVectorRetriever(BaseRetriever):
         conn = self._get_connection()
         embeddings = self._embedder.embed([doc.content for doc in documents])
         for i, doc in enumerate(documents):
-            doc_id = doc.id or f"doc-{i}-{hash(doc.content)}"
+            doc_id = _stable_document_id(doc)
             vector = list(embeddings[i])
             conn.execute(
                 f"INSERT INTO {self.table_name} (id, content, metadata, embedding) "
@@ -164,7 +189,6 @@ class QdrantRetriever(BaseRetriever):
         self._embedder = _SentenceTransformerEmbedder(embedding_model)
         self._client: Any | None = None
         self._connect_lock = Lock()
-        self._next_id = 0
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -199,12 +223,12 @@ class QdrantRetriever(BaseRetriever):
         embeddings = self._embedder.embed([doc.content for doc in documents])
         points = []
         for i, doc in enumerate(documents):
-            self._next_id += 1
+            doc_id = _stable_document_id(doc)
             points.append(
                 PointStruct(
-                    id=self._next_id,
+                    id=_stable_uuid(doc_id),
                     vector=list(embeddings[i]),
-                    payload={"content": doc.content, "metadata": doc.metadata, "doc_id": doc.id},
+                    payload={"content": doc.content, "metadata": doc.metadata, "doc_id": doc_id},
                 )
             )
         client.upsert(collection_name=self.collection_name, points=points)
@@ -274,9 +298,15 @@ class WeaviateRetriever(BaseRetriever):
         embeddings = self._embedder.embed([doc.content for doc in documents])
         with collection.batch.dynamic() as batch:
             for i, doc in enumerate(documents):
+                doc_id = _stable_document_id(doc)
                 batch.add_object(
-                    properties={"content": doc.content, "metadata": json.dumps(doc.metadata)},
+                    properties={
+                        "content": doc.content,
+                        "metadata": json.dumps(doc.metadata),
+                        "doc_id": doc_id,
+                    },
                     vector=list(embeddings[i]),
+                    uuid=_stable_uuid(doc_id),
                 )
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
@@ -287,7 +317,13 @@ class WeaviateRetriever(BaseRetriever):
         for obj in result.objects:
             metadata_raw = obj.properties.get("metadata")
             metadata = json.loads(metadata_raw) if metadata_raw else {}
-            documents.append(Document(content=obj.properties.get("content", ""), metadata=metadata))
+            documents.append(
+                Document(
+                    content=obj.properties.get("content", ""),
+                    metadata=metadata,
+                    id=obj.properties.get("doc_id", ""),
+                )
+            )
         return documents
 
 
@@ -323,7 +359,6 @@ class PineconeRetriever(BaseRetriever):
         self._embedder = _SentenceTransformerEmbedder(embedding_model)
         self._index: Any | None = None
         self._connect_lock = Lock()
-        self._next_id = 0
 
     def _get_index(self) -> Any:
         if self._index is not None:
@@ -349,10 +384,10 @@ class PineconeRetriever(BaseRetriever):
         embeddings = self._embedder.embed([doc.content for doc in documents])
         vectors = []
         for i, doc in enumerate(documents):
-            self._next_id += 1
+            doc_id = _stable_document_id(doc)
             vectors.append(
                 {
-                    "id": doc.id or f"doc-{self._next_id}",
+                    "id": doc_id,
                     "values": list(embeddings[i]),
                     "metadata": {"content": doc.content, **doc.metadata},
                 }

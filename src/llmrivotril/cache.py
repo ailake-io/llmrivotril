@@ -97,14 +97,31 @@ def cache_key(
     response_model: type[Any] | None = None,
     tools: list[dict[str, Any]] | None = None,
     system_prompt: str | None = None,
+    provider_name: str = "base",
+    base_url: str | None = None,
 ) -> str:
-    """Return a deterministic cache key for a completion request."""
+    """Return a deterministic cache key for a completion request.
+
+    Provider identity is part of the key because the same model name can refer
+    to different deployments, especially when ``base_url`` points at a local
+    OpenAI-compatible server.
+    """
+    response_model_id: str | None = None
+    if response_model is not None:
+        schema = response_model.model_json_schema()
+        schema_json = json.dumps(schema, sort_keys=True, ensure_ascii=False, default=str)
+        schema_fingerprint = hashlib.sha256(schema_json.encode("utf-8")).hexdigest()
+        response_model_id = (
+            f"{response_model.__module__}.{response_model.__qualname__}:{schema_fingerprint}"
+        )
     data: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "system_prompt": system_prompt,
         "tools": tools or [],
-        "response_model": response_model.__name__ if response_model is not None else None,
+        "response_model": response_model_id,
+        "provider_name": provider_name,
+        "base_url": base_url,
     }
     normalized = json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()

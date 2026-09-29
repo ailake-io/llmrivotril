@@ -18,6 +18,7 @@ def test_log_execution_counts():
     summary = metrics.get_summary()
     assert summary["requests_total"] == 2
     assert summary["guardrail_blocks"] == 1
+    assert summary["errors_total"] == 0
     assert summary["total_tokens_consumed"] == 15
     assert summary["success_rate"] == 50.0
 
@@ -28,6 +29,17 @@ def test_success_rate_never_negative():
         "p", "r", tokens=1, latency=0.1, guardrail_blocked=True, hallucination_blocked=True
     )
     summary = metrics.get_summary()
+    assert summary["success_rate"] == 0.0
+
+
+def test_errors_reduce_success_rate_without_being_policy_blocks():
+    metrics = MetricsCollector()
+    metrics.log_execution("p", "", tokens=1, latency=0.1, error="provider failed")
+
+    summary = metrics.get_summary()
+    assert summary["errors_total"] == 1
+    assert summary["guardrail_blocks"] == 0
+    assert summary["hallucinations_detected"] == 0
     assert summary["success_rate"] == 0.0
 
 
@@ -45,6 +57,7 @@ def test_reset():
     metrics.reset()
     summary = metrics.get_summary()
     assert summary["requests_total"] == 0
+    assert summary["errors_total"] == 0
     assert summary["total_tokens_consumed"] == 0
     assert summary["logs"] == []
 
@@ -77,6 +90,7 @@ def test_metrics_save_and_load(tmp_path):
 
     assert loaded.requests_total == 1
     assert loaded.guardrail_blocks == 1
+    assert loaded.errors_total == 0
     assert loaded.total_tokens_consumed == 10
     assert len(loaded.logs) == 1
 
