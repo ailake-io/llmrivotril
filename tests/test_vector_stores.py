@@ -21,6 +21,40 @@ from llmrivotril.rag.vector_stores import (
 )
 
 
+class _FakeWeaviateProperty:
+    """Minimal stand-in for weaviate.classes.config.Property: keeps the
+    `name` kwarg the tests actually assert on, ignores the rest."""
+
+    def __init__(self, name, **kwargs):
+        self.name = name
+
+
+def _weaviate_classes_sys_modules() -> dict[str, MagicMock]:
+    """sys.modules patch for weaviate.classes.config/.query, so
+    WeaviateRetriever's real (not client-mediated) imports of
+    Property/DataType/Tokenization/Filter don't require weaviate-client
+    to actually be installed -- these are collection-schema/filter builder
+    types, not something a mocked `client` object can stand in for."""
+    fake_config = MagicMock()
+    fake_config.Property = _FakeWeaviateProperty
+
+    fake_query = MagicMock()  # Filter.by_property(...).equal(...) and `&` are auto-mocked
+
+    fake_classes = MagicMock()
+    fake_classes.config = fake_config
+    fake_classes.query = fake_query
+
+    fake_weaviate = MagicMock()
+    fake_weaviate.classes = fake_classes
+
+    return {
+        "weaviate": fake_weaviate,
+        "weaviate.classes": fake_classes,
+        "weaviate.classes.config": fake_config,
+        "weaviate.classes.query": fake_query,
+    }
+
+
 def _fake_embed_fn(vectors: dict[str, list[float]]):
     def embed(text_or_texts):
         if isinstance(text_or_texts, str):
@@ -234,7 +268,10 @@ def test_qdrant_retrieve_real_in_memory_instance():
 
 
 # --- WeaviateRetriever ---
-# Takes a pre-connected client directly, so no sys.modules patching needed.
+# Takes a pre-connected client directly, so most tests need no sys.modules
+# patching -- except the ones below that exercise collection creation or
+# native filters, which import real weaviate.classes.config/.query types
+# no mocked client object can stand in for.
 
 
 def test_weaviate_add_documents_batches_inserts():
@@ -289,7 +326,9 @@ def test_weaviate_creates_flat_filterable_metadata_properties():
         client=mock_client, collection_name="Docs", filterable_metadata=["type"]
     )
     retriever._embedder.embed = _fake_embed_fn({"hello": [0.1, 0.2]})
-    retriever.add_documents([Document(content="hello", metadata={"type": "markdown"})])
+
+    with patch.dict(sys.modules, _weaviate_classes_sys_modules()):
+        retriever.add_documents([Document(content="hello", metadata={"type": "markdown"})])
 
     create_kwargs = mock_client.collections.create.call_args.kwargs
     property_names = {property_.name for property_ in create_kwargs["properties"]}
@@ -313,7 +352,8 @@ def test_weaviate_passes_configured_metadata_filter_natively():
     )
     retriever._embedder.embed = _fake_embed_fn({"query": [0.1, 0.2]})
 
-    results = retriever.retrieve("query", metadata_filter={"type": "markdown"})
+    with patch.dict(sys.modules, _weaviate_classes_sys_modules()):
+        results = retriever.retrieve("query", metadata_filter={"type": "markdown"})
 
     assert len(results) == 1
     assert "filters" in mock_collection.query.near_vector.call_args.kwargs
@@ -335,8 +375,9 @@ def test_weaviate_creates_collection_only_once():
     retriever = WeaviateRetriever(client=mock_client, collection_name="Docs")
     retriever._embedder.embed = _fake_embed_fn({"a": [0.1], "b": [0.2]})
 
-    retriever.add_documents([Document(content="a")])
-    retriever.add_documents([Document(content="b")])
+    with patch.dict(sys.modules, _weaviate_classes_sys_modules()):
+        retriever.add_documents([Document(content="a")])
+        retriever.add_documents([Document(content="b")])
 
     mock_client.collections.create.assert_called_once()
     assert mock_client.collections.create.call_args.args == ("Docs",)

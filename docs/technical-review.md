@@ -272,3 +272,30 @@ encontrados bloqueios críticos de implementação no código.
 As limitações conhecidas continuam sendo: os adapters Azure/Bedrock não foram
 validados com credenciais reais, PostgreSQL/Pinecone ainda não foram testados
 contra serviços reais, e `tools=` não está disponível no streaming do Bedrock.
+
+## Correção validada em 29/09/2026
+
+O gate "326 testes passaram" acima foi medido num ambiente com
+`weaviate-client` instalado. Rodando exatamente o comando que o job
+`lint-and-test` do CI usa (`pip install -e ".[ci]"`, sem nenhum extra
+opcional) três testes de `WeaviateRetriever` falhavam de verdade:
+`_collection_properties()`/`_native_metadata_filter()` fazem
+`from weaviate.classes... import ...` sem guarda, e um `client=` mockado não
+cobre isso. Corrigido mockando `weaviate.classes.config`/`.query` como os
+outros vector stores opcionais já faziam; suíte revalidada com **zero**
+pacotes opcionais instalados (equivalente exato ao `.[ci]` do CI real):
+323 passaram, 6 pulados (mesmo total de antes, 3 que falhavam agora passam
+via mock em vez de dependerem do pacote real estar instalado).
+
+Também rodados nesta correção, de forma independente (sem depender do que
+este documento já afirmava): `python -m build` + `twine check` nos dois
+artefatos, instalação do wheel em venv limpo com `import llmrivotril` e
+`llmrivotril --help` funcionando, e conferência de que o wheel contém
+`py.typed`/templates/assets/license — todos passaram, confirmando os gates
+de empacotamento já registrados acima.
+
+Lição para os próximos gates: "todos os testes passam" só vale como
+evidência de prontidão para CI se for medido no mesmo conjunto de
+dependências que o CI real instala -- rodar com mais extras instalados
+localmente do que o CI instala pode mascarar exatamente esse tipo de
+regressão.

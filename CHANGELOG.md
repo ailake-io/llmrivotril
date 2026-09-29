@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-28
+
 ### Added
 
+- First release candidate for PyPI distribution.
+- RAG context injection, deterministic vector-store identifiers, protected
+  memory persistence, cache namespacing, and expanded telemetry.
+- Explicit grounding failure policies and provider-specific retry handling.
+- Gemini adapter migration to the `google-genai` SDK.
 - `RAGPipeline.retrieve()`/`aretrieve()` for accessing ranked documents with
   IDs and metadata before formatting context for an LLM.
 - Public top-level exports for `BaseLoader`, `BaseChunker` and `BaseRetriever`
@@ -25,16 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - RAG retrievers now reject negative `top_k` values instead of relying on
   Python slicing semantics.
-
-## [0.1.0] - 2026-09-28
-
-### Added
-
-- First release candidate for PyPI distribution.
-- RAG context injection, deterministic vector-store identifiers, protected
-  memory persistence, cache namespacing, and expanded telemetry.
-- Explicit grounding failure policies and provider-specific retry handling.
-- Gemini adapter migration to the `google-genai` SDK.
+- Three `WeaviateRetriever` tests only passed when `weaviate-client` happened
+  to be installed locally, because `_collection_properties()`/
+  `_native_metadata_filter()` do a real (unmocked) `from weaviate.classes...
+  import ...` that a mocked `client=` object can't stand in for. This wasn't
+  caught by the "326 tests passed" gate recorded earlier in
+  `docs/technical-review.md`, because that run had `weaviate-client`
+  installed -- CI's `lint-and-test` job (`pip install -e ".[ci]"`, no
+  optional extras) would have failed on these 3. Fixed by mocking
+  `weaviate.classes.config`/`.query` the same way the other optional
+  vector-store dependencies already are; verified clean with zero optional
+  packages installed, matching real CI exactly.
 
 ### Security
 
