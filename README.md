@@ -74,6 +74,7 @@ print(response)
 - [Reliability](docs/reliability.md) — Resilience, response caching, schema-repair fallback.
 - [Observability](docs/observability.md) — Metrics persistence, local dashboard, benchmark, cost tracking.
 - [Configuration](docs/configuration.md) — Config files, environment variables, plugins, project scaffolding.
+- [Releasing](docs/releasing.md) — Build validation, TestPyPI, and the PyPI release workflow.
 
 ## Interactive Demo
 
@@ -141,7 +142,7 @@ Slow integration tests (e.g. loading `sentence-transformers` models) are skipped
 default. Run them with:
 
 ```bash
-pytest -v -m slow
+pytest -v --run-slow
 ```
 
 ## CI/CD

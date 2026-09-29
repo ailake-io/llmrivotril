@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from ._async import run_sync
 from .resilience import retryable_exceptions_for_provider
 
 if TYPE_CHECKING:
@@ -689,8 +690,9 @@ class GeminiProvider(BaseProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            from google import genai
+            import importlib
 
+            genai = importlib.import_module("google.genai")
             self._client = genai.Client(api_key=self.api_key, **self.extra_kwargs)
         return self._client
 
@@ -999,9 +1001,7 @@ class BedrockProvider(BaseProvider):
         tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ProviderResponse:
-        return await asyncio.to_thread(
-            self.complete, messages, model, response_model, tools, **kwargs
-        )
+        return await run_sync(self.complete, messages, model, response_model, tools, **kwargs)
 
     def stream(
         self,
@@ -1073,6 +1073,7 @@ class BedrockProvider(BaseProvider):
                 yield item
         finally:
             stopped.set()
+            thread.join(timeout=1.0)
 
 
 _PROVIDER_REGISTRY: dict[str, Callable[..., BaseProvider]] = {

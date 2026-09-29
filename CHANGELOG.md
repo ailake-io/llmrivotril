@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `RAGPipeline.retrieve()`/`aretrieve()` for accessing ranked documents with
+  IDs and metadata before formatting context for an LLM.
+- Public top-level exports for `BaseLoader`, `BaseChunker` and `BaseRetriever`
+  so custom RAG components do not depend on internal module paths.
+- Async RAG methods now execute synchronous loading, chunking and retrieval in
+  a short-lived worker without blocking the event loop.
+
+### Fixed
+
+- RAG retrievers now reject negative `top_k` values instead of relying on
+  Python slicing semantics.
+
+## [0.1.0] - 2026-09-28
+
+### Added
+
+- First release candidate for PyPI distribution.
+- RAG context injection, deterministic vector-store identifiers, protected
+  memory persistence, cache namespacing, and expanded telemetry.
+- Explicit grounding failure policies and provider-specific retry handling.
+- Gemini adapter migration to the `google-genai` SDK.
+
+### Security
+
+- Dashboard log rendering no longer interpolates untrusted content as HTML.
+- SQL table identifiers are validated before being used by the pgvector
+  adapter.
+
 ## [0.0.9] - 2026-09-28
 
 ### Added

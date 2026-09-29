@@ -1,3 +1,5 @@
+import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -88,6 +90,12 @@ def test_keyword_retriever_empty_query():
     retriever = InMemoryKeywordRetriever()
     retriever.add_documents([Document(content="Some content.")])
     assert retriever.retrieve("the a an", top_k=2) == []
+
+
+def test_retrievers_reject_negative_top_k():
+    retriever = InMemoryKeywordRetriever()
+    with pytest.raises(ValueError, match="top_k"):
+        retriever.retrieve("query", top_k=-1)
 
 
 def _fake_embed_fn(vectors: dict[str, list[float]]):
@@ -225,6 +233,15 @@ def test_rag_pipeline_ingest_and_query(sample_dir):
     assert "Guardrails validate" in context
 
 
+def test_rag_pipeline_retrieve_preserves_document_metadata(sample_dir):
+    pipeline = RAGPipeline()
+    pipeline.ingest(sample_dir)
+
+    documents = pipeline.retrieve("validate inputs", top_k=1)
+
+    assert documents[0].metadata["source"].endswith("detail.md")
+
+
 def test_rag_pipeline_format_context():
     pipeline = RAGPipeline()
     formatted = pipeline.format_context([Document(content="A"), Document(content="B")])
@@ -239,6 +256,24 @@ async def test_rag_pipeline_aingest_and_aquery(sample_dir):
 
     context = await pipeline.aquery("validate inputs", top_k=2)
     assert "Guardrails validate" in context
+
+    documents = await pipeline.aretrieve("validate inputs", top_k=1)
+    assert documents[0].metadata["source"].endswith("detail.md")
+
+
+@pytest.mark.asyncio
+async def test_rag_async_ingest_does_not_block_event_loop(sample_dir):
+    class SlowLoader(TextLoader):
+        def load(self, source):
+            time.sleep(0.05)
+            return super().load(source)
+
+    pipeline = RAGPipeline(loader=SlowLoader())
+    task = asyncio.create_task(pipeline.aingest(sample_dir))
+    await asyncio.sleep(0.005)
+
+    assert not task.done()
+    assert await task
 
 
 def test_rag_pipeline_summary():

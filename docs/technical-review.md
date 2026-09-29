@@ -153,12 +153,12 @@ de CI e executar os mesmos comandos localmente e no pipeline.
 
 #### 15. Documentação e fonte de verdade
 
-Existe uma migração em andamento de `docs/usage.md` para vários documentos. No
-estado atual, os novos arquivos estão não rastreados pelo Git, e
-`llm_rivotril.md` ainda descreve uma estrutura e versão antigas.
+Existe uma migração em andamento de `docs/usage.md` para vários documentos. A
+documentação oficial agora está no README e em `docs/`; a especificação antiga
+foi removida para não continuar sendo distribuída como fonte conflitante.
 
-**Correção:** consolidar a documentação, atualizar referências, incluir os
-novos arquivos no commit apropriado e definir README/docs como fonte oficial.
+**Correção:** consolidar a documentação, atualizar referências e definir
+README/docs como fonte oficial.
 
 ## Ordem de execução
 
@@ -188,20 +188,39 @@ de qualidade antes de iniciar a seguinte.
   grounding, e retries passaram a respeitar o provider selecionado.
 - [x] SDK Gemini migrado para `google-genai`/`google.genai`, com testes de
   geração síncrona, assíncrona e streaming.
-- [ ] Refatoração, CI e testes de contrato ainda aguardam execução.
+- [x] Documentação reorganizada em README + `docs/`; especificação antiga
+  removida do pacote.
+- [x] Refatoração, CI, testes de contrato e gates de publicação executados.
 
 ## Validação desta execução
 
-- 101 testes direcionados passaram nos módulos alterados.
+- 319 testes passaram e 3 foram pulados por serem opcionais ou lentos.
 - `ruff check src tests` passou.
-- Os arquivos alterados nesta execução passaram em `ruff format --check`.
+- `ruff format --check src tests` passou.
 - `git diff --check` passou.
-- O gate global de formatação passou para `src` e `tests`.
-- O streaming Bedrock assíncrono passou isoladamente.
+- `mypy src` passou usando `MYPY_CACHE_DIR` gravável.
+- O streaming Bedrock assíncrono passou em conjunto com os testes de RAG.
+- O RAG expõe `retrieve()`/`aretrieve()` para preservar metadados e rejeita
+  limites `top_k` negativos.
+- Os pontos de extensão do RAG (`BaseLoader`, `BaseChunker` e `BaseRetriever`)
+  estão disponíveis no namespace público `llmrivotril`.
 - O adapter Gemini passou nos testes mockados do SDK novo; a integração real
   depende da instalação de `google-genai`.
-- O conjunto completo ainda deve ser investigado: no ambiente atual, alguns
-  cenários combinados de `asyncio.to_thread`/`TestClient` permanecem sem
-  concluir, embora os casos de regressão isolados passem.
-- O `mypy` local (`2.3.1`) encerra com erro interno antes de emitir
-  diagnósticos; é necessário repetir o gate com uma versão fixada e estável.
+- Os bridges assíncronos que envolvem trabalho bloqueante usam executor com
+  encerramento explícito; o RAG local também foi validado sem bloquear o
+  event loop.
+- Os testes do dashboard usam transporte ASGI assíncrono, evitando o portal
+  bloqueante incompatível com o ambiente Python 3.13 utilizado na validação.
+- Os testes marcados como `slow` são pulados por padrão e só rodam com
+  `pytest --run-slow`.
+
+## Prontidão para PyPI
+
+- [x] Metadados, licença SPDX e extras sem autorreferência revisados.
+- [x] Wheel e sdist `0.1.0` construídos com sucesso.
+- [x] `twine check` passou para os dois artefatos.
+- [x] Wheel contém `py.typed`, RAG, templates, assets e licença.
+- [x] Workflow de release com Trusted Publishing preparado.
+- [ ] Confirmar nome disponível no PyPI e substituir o autor genérico por
+  identidade de release real.
+- [ ] Executar o primeiro upload no TestPyPI e validar instalação externa.

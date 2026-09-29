@@ -1,9 +1,9 @@
 """High-level RAG pipeline for loading, chunking and retrieving context."""
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
+from .._async import run_sync
 from .chunkers import BaseChunker, SimpleChunker
 from .document import Document
 from .loaders import BaseLoader, TextLoader
@@ -39,22 +39,29 @@ class RAGPipeline:
 
     def query(self, query: str, top_k: int = 3) -> str:
         """Retrieve context for ``query`` and return it as a single string."""
-        documents = self.retriever.retrieve(query, top_k=top_k)
+        documents = self.retrieve(query, top_k=top_k)
         return self.format_context(documents)
+
+    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        """Retrieve ranked documents while preserving IDs and metadata."""
+        return self.retriever.retrieve(query, top_k=top_k)
 
     async def aingest(self, source: str | Path) -> list[Document]:
         """Async version of :meth:`ingest`.
 
-        Loading, chunking and embedding are all synchronous, CPU/IO-bound
-        work (there's no async file I/O or async sentence-transformers here),
-        so this runs :meth:`ingest` in a worker thread rather than blocking
-        the event loop.
+        Loading, chunking and embedding are synchronous local operations, so
+        this method runs them in a short-lived worker without blocking the
+        event loop.
         """
-        return await asyncio.to_thread(self.ingest, source)
+        return await run_sync(self.ingest, source)
 
     async def aquery(self, query: str, top_k: int = 3) -> str:
         """Async version of :meth:`query`; see :meth:`aingest`."""
-        return await asyncio.to_thread(self.query, query, top_k)
+        return await run_sync(self.query, query, top_k)
+
+    async def aretrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        """Async version of :meth:`retrieve`."""
+        return await run_sync(self.retrieve, query, top_k)
 
     @staticmethod
     def format_context(documents: list[Document]) -> str:

@@ -28,7 +28,7 @@ from threading import Lock
 from typing import Any
 
 from .document import Document
-from .retrievers import BaseRetriever
+from .retrievers import BaseRetriever, _validate_top_k
 
 logger = logging.getLogger("llmrivotril")
 
@@ -150,6 +150,7 @@ class PgVectorRetriever(BaseRetriever):
             )
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        _validate_top_k(top_k)
         conn = self._get_connection()
         query_vector = list(self._embedder.embed(query))
         rows = conn.execute(
@@ -234,6 +235,7 @@ class QdrantRetriever(BaseRetriever):
         client.upsert(collection_name=self.collection_name, points=points)
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        _validate_top_k(top_k)
         client = self._get_client()
         query_vector = list(self._embedder.embed(query))
         response = client.query_points(
@@ -310,6 +312,7 @@ class WeaviateRetriever(BaseRetriever):
                 )
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        _validate_top_k(top_k)
         collection = self._get_collection()
         query_vector = list(self._embedder.embed(query))
         result = collection.query.near_vector(near_vector=query_vector, limit=top_k)
@@ -395,6 +398,7 @@ class PineconeRetriever(BaseRetriever):
         index.upsert(vectors=vectors, namespace=self.namespace)
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        _validate_top_k(top_k)
         index = self._get_index()
         query_vector = list(self._embedder.embed(query))
         result = index.query(

@@ -513,17 +513,23 @@ class RivotrilAgent:
         tools: list[Any] | None,
     ) -> str:
         if self.cache_key_fn is cache_key:
-            return cache_key(
-                messages,
-                self.model,
-                response_model,
-                tools,
-                self.system_prompt,
-                provider_name=getattr(self.provider, "name", "base"),
-                base_url=self.base_url,
+            return cast(
+                str,
+                cache_key(
+                    messages,
+                    self.model,
+                    response_model,
+                    tools,
+                    self.system_prompt,
+                    provider_name=getattr(self.provider, "name", "base"),
+                    base_url=self.base_url,
+                ),
             )
         # Preserve compatibility with existing custom key functions.
-        return self.cache_key_fn(messages, self.model, response_model, tools, self.system_prompt)
+        return cast(
+            str,
+            self.cache_key_fn(messages, self.model, response_model, tools, self.system_prompt),
+        )
 
     def _call_llm(
         self,

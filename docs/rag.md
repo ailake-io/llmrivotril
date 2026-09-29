@@ -19,7 +19,18 @@ response = agent.run(
 
 The pipeline includes `TextLoader`, `MarkdownLoader`, `SimpleChunker` and `InMemoryKeywordRetriever`. For dense retrieval, install `llmrivotril[semantic]` and use `InMemoryEmbeddingRetriever(cache_path="embeddings.json")` -- `cache_path` avoids recomputing embeddings for content already seen in a prior run.
 
-Inside `agent.run_async()` or any other async code, use `await pipeline.aingest(...)`/`await pipeline.aquery(...)` instead of `ingest`/`query` so the (synchronous, CPU/IO-bound) loading and embedding work doesn't block the event loop.
+`aingest()` and `aquery()` run the synchronous default loaders, chunkers and
+retrievers in a short-lived worker, so they do not block the event loop. For
+very large corpora, a dedicated worker process may still be preferable because
+embedding models can consume significant memory.
+
+Use `retrieve()` when you need document IDs and metadata for citations; use
+`query()` when the LLM only needs a formatted context string:
+
+```python
+documents = pipeline.retrieve("What is a guardrail?", top_k=3)
+context = pipeline.query("What is a guardrail?", top_k=3)
+```
 
 ## Vector-Store Retrievers
 
@@ -29,6 +40,10 @@ or scale past a few thousand documents. Swap in a retriever backed by an
 external vector database instead (all implement the same
 `add_documents`/`retrieve` interface, so they drop into `RAGPipeline(retriever=...)`
 unchanged):
+
+Custom loaders, chunkers and retrievers can implement the public
+`BaseLoader`, `BaseChunker` and `BaseRetriever` interfaces imported directly
+from `llmrivotril`.
 
 ```python
 from llmrivotril import PgVectorRetriever, RAGPipeline

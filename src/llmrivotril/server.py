@@ -8,8 +8,7 @@ from threading import Lock
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, Response
 
 from . import __version__
 from .metrics import global_metrics
@@ -96,8 +95,7 @@ app = FastAPI(title="LLM-Rivotril Local Dashboard")
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "dashboard.html"
 HTML_TEMPLATE = _TEMPLATE_PATH.read_text(encoding="utf-8")
-
-app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+_TAILWIND_CONTENT = (_STATIC_DIR / "tailwind.min.js").read_bytes()
 
 
 def _verify_dashboard_token(authorization: str | None = Header(None)) -> None:
@@ -130,25 +128,35 @@ def _verify_dashboard_token(authorization: str | None = Header(None)) -> None:
     logger.info("Dashboard access authenticated as %r", matched_label)
 
 
+async def _async_enforce_rate_limit(request: Request) -> None:
+    """Async dependency wrapper that avoids Starlette's sync threadpool."""
+    _enforce_rate_limit(request)
+
+
+async def _async_verify_dashboard_token(authorization: str | None = Header(None)) -> None:
+    """Async dependency wrapper that preserves direct sync helper usage."""
+    _verify_dashboard_token(authorization)
+
+
 @app.get(
     "/",
     response_class=HTMLResponse,
-    dependencies=[Depends(_enforce_rate_limit), Depends(_verify_dashboard_token)],
+    dependencies=[Depends(_async_enforce_rate_limit), Depends(_async_verify_dashboard_token)],
 )
-def get_dashboard() -> str:
+async def get_dashboard() -> str:
     return HTML_TEMPLATE
 
 
 @app.get(
     "/api/metrics",
-    dependencies=[Depends(_enforce_rate_limit), Depends(_verify_dashboard_token)],
+    dependencies=[Depends(_async_enforce_rate_limit), Depends(_async_verify_dashboard_token)],
 )
-def get_metrics() -> dict[str, Any]:
+async def get_metrics() -> dict[str, Any]:
     return global_metrics.get_summary()
 
 
-@app.get("/api/health", dependencies=[Depends(_enforce_rate_limit)])
-def health_check() -> dict[str, Any]:
+@app.get("/api/health", dependencies=[Depends(_async_enforce_rate_limit)])
+async def health_check() -> dict[str, Any]:
     return {
         "status": "ok",
         "version": __version__,
@@ -162,9 +170,9 @@ def _format_prometheus_line(name: str, value: float | int, help_text: str, type_
 
 @app.get(
     "/api/metrics/prometheus",
-    dependencies=[Depends(_enforce_rate_limit), Depends(_verify_dashboard_token)],
+    dependencies=[Depends(_async_enforce_rate_limit), Depends(_async_verify_dashboard_token)],
 )
-def get_prometheus_metrics() -> str:
+async def get_prometheus_metrics() -> str:
     """Return telemetry in Prometheus exposition format."""
     summary = global_metrics.get_summary()
     output = ""
@@ -211,6 +219,12 @@ def get_prometheus_metrics() -> str:
         "gauge",
     )
     return output
+
+
+@app.get("/static/tailwind.min.js", include_in_schema=False)
+async def get_tailwind_asset() -> Response:
+    """Serve the bundled dashboard asset without a worker-thread stat call."""
+    return Response(content=_TAILWIND_CONTENT, media_type="application/javascript")
 
 
 def run_dashboard(host: str = "127.0.0.1", port: int = 8000) -> None:

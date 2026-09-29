@@ -23,9 +23,9 @@ from .providers import (
     get_provider,
 )
 from .rag import Document, RAGPipeline
-from .rag.chunkers import SimpleChunker
-from .rag.loaders import CSVLoader, HTMLLoader, MarkdownLoader, PDFLoader, TextLoader
-from .rag.retrievers import InMemoryEmbeddingRetriever, InMemoryKeywordRetriever
+from .rag.chunkers import BaseChunker, SimpleChunker
+from .rag.loaders import BaseLoader, CSVLoader, HTMLLoader, MarkdownLoader, PDFLoader, TextLoader
+from .rag.retrievers import BaseRetriever, InMemoryEmbeddingRetriever, InMemoryKeywordRetriever
 from .rag.vector_stores import (
     PgVectorRetriever,
     PineconeRetriever,
@@ -36,8 +36,9 @@ from .semantic import EmbeddingFaithfulnessVerifier, SemanticTopicGuardrail
 from .tools import ToolCall, ToolRegistry
 from .verifier import ModelBasedFaithfulnessVerifier
 
-__version__ = "0.0.9"
+__version__ = "0.1.0"
 __all__ = [
+    "__version__",
     "RivotrilAgent",
     "StreamedStructuredResult",
     "AsyncStreamedStructuredResult",
@@ -65,6 +66,9 @@ __all__ = [
     "ModelBasedFaithfulnessVerifier",
     "Document",
     "RAGPipeline",
+    "BaseLoader",
+    "BaseChunker",
+    "BaseRetriever",
     "TextLoader",
     "MarkdownLoader",
     "HTMLLoader",

@@ -20,6 +20,13 @@ except ImportError:  # pragma: no cover - numpy ships with sentence-transformers
     np = None  # type: ignore[assignment]
 
 
+def _validate_top_k(top_k: int) -> int:
+    """Validate the common retrieval limit before it reaches a backend."""
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 0:
+        raise ValueError("top_k must be a non-negative integer")
+    return top_k
+
+
 class BaseRetriever(ABC):
     """Abstract retriever that stores documents and answers queries."""
 
@@ -50,6 +57,7 @@ class InMemoryKeywordRetriever(BaseRetriever):
             self._tokens.append(_tokenize(doc.content))
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        _validate_top_k(top_k)
         query_tokens = _tokenize(query)
         if not query_tokens or not self._documents:
             return []
@@ -157,6 +165,7 @@ class InMemoryEmbeddingRetriever(BaseRetriever):
         self._embeddings_matrix = None
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+        _validate_top_k(top_k)
         if self._fallback is not None:
             return self._fallback.retrieve(query, top_k)
 
