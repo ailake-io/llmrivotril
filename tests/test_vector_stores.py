@@ -71,6 +71,23 @@ def test_pgvector_retrieve_returns_documents():
     assert results[0].id == "doc-1"
 
 
+def test_pgvector_passes_metadata_filter_to_sql():
+    retriever = PgVectorRetriever(dsn="postgresql://localhost/test")
+    retriever._embedder.embed = _fake_embed_fn({"query": [0.1, 0.2]})
+
+    fake_psycopg = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchall.return_value = []
+    fake_psycopg.connect.return_value = mock_conn
+
+    with patch.dict(sys.modules, {"psycopg": fake_psycopg}):
+        retriever.retrieve("query", top_k=2, metadata_filter={"type": "markdown"})
+
+    args, _ = mock_conn.execute.call_args
+    assert "metadata @>" in args[0]
+    assert args[1][0] == '{"type": "markdown"}'
+
+
 def test_pgvector_connection_is_cached():
     retriever = PgVectorRetriever(dsn="postgresql://localhost/test")
     retriever._embedder.embed = _fake_embed_fn({"a": [0.1], "b": [0.2]})
@@ -212,6 +229,9 @@ def test_qdrant_retrieve_real_in_memory_instance():
     assert results[0].content == "science topic"
     assert results[0].id == "doc-1"
 
+    filtered = retriever.retrieve("physics is great", top_k=2, metadata_filter={"k": "v2"})
+    assert [document.id for document in filtered] == ["doc-2"]
+
 
 # --- WeaviateRetriever ---
 # Takes a pre-connected client directly, so no sys.modules patching needed.
@@ -257,6 +277,53 @@ def test_weaviate_retrieve_returns_documents():
     assert results[0].metadata == {"k": "v"}
 
 
+def test_weaviate_creates_flat_filterable_metadata_properties():
+    mock_client = MagicMock()
+    mock_client.collections.exists.return_value = False
+    mock_collection = MagicMock()
+    mock_client.collections.get.return_value = mock_collection
+    mock_batch = MagicMock()
+    mock_collection.batch.dynamic.return_value.__enter__.return_value = mock_batch
+
+    retriever = WeaviateRetriever(
+        client=mock_client, collection_name="Docs", filterable_metadata=["type"]
+    )
+    retriever._embedder.embed = _fake_embed_fn({"hello": [0.1, 0.2]})
+    retriever.add_documents([Document(content="hello", metadata={"type": "markdown"})])
+
+    create_kwargs = mock_client.collections.create.call_args.kwargs
+    property_names = {property_.name for property_ in create_kwargs["properties"]}
+    assert "metadata" in property_names
+    assert "metadata_type" in property_names
+    properties = mock_batch.add_object.call_args.kwargs["properties"]
+    assert properties["metadata_type"] == "markdown"
+
+
+def test_weaviate_passes_configured_metadata_filter_natively():
+    mock_client = MagicMock()
+    mock_client.collections.exists.return_value = True
+    mock_collection = MagicMock()
+    mock_client.collections.get.return_value = mock_collection
+    fake_obj = MagicMock()
+    fake_obj.properties = {"content": "hello", "metadata": '{"type": "markdown"}'}
+    mock_collection.query.near_vector.return_value.objects = [fake_obj]
+
+    retriever = WeaviateRetriever(
+        client=mock_client, collection_name="Docs", filterable_metadata=["type"]
+    )
+    retriever._embedder.embed = _fake_embed_fn({"query": [0.1, 0.2]})
+
+    results = retriever.retrieve("query", metadata_filter={"type": "markdown"})
+
+    assert len(results) == 1
+    assert "filters" in mock_collection.query.near_vector.call_args.kwargs
+
+
+def test_weaviate_rejects_invalid_filterable_metadata_key():
+    with pytest.raises(ValueError, match="filterable_metadata"):
+        WeaviateRetriever(client=MagicMock(), filterable_metadata=["type;drop"])
+
+
 def test_weaviate_creates_collection_only_once():
     mock_client = MagicMock()
     mock_client.collections.exists.return_value = False
@@ -271,7 +338,8 @@ def test_weaviate_creates_collection_only_once():
     retriever.add_documents([Document(content="a")])
     retriever.add_documents([Document(content="b")])
 
-    mock_client.collections.create.assert_called_once_with("Docs")
+    mock_client.collections.create.assert_called_once()
+    assert mock_client.collections.create.call_args.args == ("Docs",)
 
 
 # --- PineconeRetriever ---
@@ -331,6 +399,21 @@ def test_pinecone_retrieve_returns_documents():
     assert results[0].content == "hello world"
     assert results[0].metadata == {"k": "v"}
     assert results[0].id == "doc-1"
+
+
+def test_pinecone_passes_metadata_filter_to_query():
+    retriever = PineconeRetriever(api_key="test-key", index_name="docs")
+    retriever._embedder.embed = _fake_embed_fn({"query": [0.1, 0.2]})
+
+    fake_pinecone_mod = MagicMock()
+    mock_index = MagicMock()
+    mock_index.query.return_value = {"matches": []}
+    fake_pinecone_mod.Pinecone.return_value.Index.return_value = mock_index
+
+    with patch.dict(sys.modules, {"pinecone": fake_pinecone_mod}):
+        retriever.retrieve("query", metadata_filter={"type": "markdown"})
+
+    assert mock_index.query.call_args.kwargs["filter"] == {"type": "markdown"}
 
 
 def test_pinecone_index_is_cached():

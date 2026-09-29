@@ -194,7 +194,7 @@ de qualidade antes de iniciar a seguinte.
 
 ## Validação desta execução
 
-- 321 testes passaram e 3 foram pulados por serem opcionais ou lentos.
+- 326 testes passaram e 3 foram pulados por serem opcionais ou lentos.
 - `ruff check src tests` passou.
 - `ruff format --check src tests` passou.
 - `git diff --check` passou.
@@ -204,6 +204,9 @@ de qualidade antes de iniciar a seguinte.
   limites `top_k` negativos.
 - O RAG aceita filtros de metadados, fontes no contexto e limite de caracteres
   para reduzir o risco de exceder o contexto do modelo.
+- PostgreSQL, Qdrant e Pinecone aplicam filtros nativamente; Weaviate aplica
+  filtros nativos para campos achatados configurados e mantém fallback local
+  para os demais.
 - Os pontos de extensão do RAG (`BaseLoader`, `BaseChunker` e `BaseRetriever`)
   estão disponíveis no namespace público `llmrivotril`.
 - O adapter Gemini passou nos testes mockados do SDK novo; a integração real

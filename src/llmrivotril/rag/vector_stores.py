@@ -23,6 +23,7 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from hashlib import sha256
 from threading import Lock
 from typing import Any
@@ -158,11 +159,18 @@ class PgVectorRetriever(BaseRetriever):
         _validate_top_k(top_k)
         conn = self._get_connection()
         query_vector = list(self._embedder.embed(query))
-        rows = conn.execute(
-            f"SELECT content, metadata, id FROM {self.table_name} "
-            "ORDER BY embedding <=> %s LIMIT %s",
-            (str(query_vector), top_k),
-        ).fetchall()
+        if metadata_filter:
+            rows = conn.execute(
+                f"SELECT content, metadata, id FROM {self.table_name} "
+                "WHERE metadata @> %s::jsonb ORDER BY embedding <=> %s LIMIT %s",
+                (json.dumps(dict(metadata_filter)), str(query_vector), top_k),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"SELECT content, metadata, id FROM {self.table_name} "
+                "ORDER BY embedding <=> %s LIMIT %s",
+                (str(query_vector), top_k),
+            ).fetchall()
         documents = [
             Document(content=row[0], metadata=row[1] or {}, id=row[2] or "") for row in rows
         ]
@@ -251,9 +259,26 @@ class QdrantRetriever(BaseRetriever):
         _validate_top_k(top_k)
         client = self._get_client()
         query_vector = list(self._embedder.embed(query))
-        response = client.query_points(
-            collection_name=self.collection_name, query=query_vector, limit=top_k
-        )
+        query_kwargs: dict[str, Any] = {
+            "collection_name": self.collection_name,
+            "query": query_vector,
+            "limit": top_k,
+        }
+        if metadata_filter:
+            try:
+                from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+                query_kwargs["query_filter"] = Filter(
+                    must=[
+                        FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value))
+                        for key, value in metadata_filter.items()
+                    ]
+                )
+            except (TypeError, ValueError):
+                # Qdrant's MatchValue only accepts scalar bool/int/str values;
+                # keep client-side filtering for richer metadata values.
+                pass
+        response = client.query_points(**query_kwargs)
         documents = [
             Document(
                 content=point.payload.get("content", ""),
@@ -284,6 +309,12 @@ class WeaviateRetriever(BaseRetriever):
     during development, not just mocks -- not automated as a test here since
     it downloads and runs an actual Weaviate binary (slow, and a bad fit for
     routine CI), but it did work.
+
+    ``filterable_metadata`` declares metadata keys that are mirrored into
+    flat, exact-match properties such as ``metadata_type``. This allows native
+    Weaviate filters for those keys while the complete metadata remains in the
+    JSON ``metadata`` property. Existing collections must be recreated or
+    migrated with the same declared properties before native filtering is used.
     """
 
     def __init__(
@@ -291,19 +322,77 @@ class WeaviateRetriever(BaseRetriever):
         client: Any,
         collection_name: str = "LlmrivotrilDocuments",
         embedding_model: str = "all-MiniLM-L6-v2",
+        filterable_metadata: Sequence[str] = (),
     ) -> None:
+        invalid_keys = [key for key in filterable_metadata if not _SQL_IDENTIFIER.fullmatch(key)]
+        if invalid_keys:
+            raise ValueError(
+                "filterable_metadata keys must contain only letters, numbers and underscores, "
+                f"and must not start with a number: {invalid_keys!r}"
+            )
         self.client = client
         self.collection_name = collection_name
         self._embedder = _SentenceTransformerEmbedder(embedding_model)
+        self.filterable_metadata = tuple(dict.fromkeys(filterable_metadata))
         self._ensure_lock = Lock()
         self._ensured = False
+
+    def _collection_properties(self) -> list[Any]:
+        from weaviate.classes.config import DataType, Property, Tokenization
+
+        properties = [
+            Property(name="content", data_type=DataType.TEXT),
+            Property(
+                name="metadata",
+                data_type=DataType.TEXT,
+                skip_vectorization=True,
+                tokenization=Tokenization.FIELD,
+            ),
+            Property(
+                name="doc_id",
+                data_type=DataType.TEXT,
+                skip_vectorization=True,
+                tokenization=Tokenization.FIELD,
+            ),
+        ]
+        properties.extend(
+            Property(
+                name=f"metadata_{key}",
+                data_type=DataType.TEXT,
+                skip_vectorization=True,
+                tokenization=Tokenization.FIELD,
+            )
+            for key in self.filterable_metadata
+        )
+        return properties
+
+    def _native_metadata_filter(self, metadata_filter: MetadataFilter | None) -> Any | None:
+        if not metadata_filter or not set(metadata_filter).issubset(self.filterable_metadata):
+            return None
+        if not all(
+            isinstance(value, (str, int, float, bool)) for value in metadata_filter.values()
+        ):
+            return None
+
+        from weaviate.classes.query import Filter
+
+        filters = [
+            Filter.by_property(f"metadata_{key}").equal(str(value))
+            for key, value in metadata_filter.items()
+        ]
+        native_filter = filters[0]
+        for current_filter in filters[1:]:
+            native_filter = native_filter & current_filter
+        return native_filter
 
     def _get_collection(self) -> Any:
         if not self._ensured:
             with self._ensure_lock:
                 if not self._ensured:
                     if not self.client.collections.exists(self.collection_name):
-                        self.client.collections.create(self.collection_name)
+                        self.client.collections.create(
+                            self.collection_name, properties=self._collection_properties()
+                        )
                     self._ensured = True
         return self.client.collections.get(self.collection_name)
 
@@ -315,12 +404,17 @@ class WeaviateRetriever(BaseRetriever):
         with collection.batch.dynamic() as batch:
             for i, doc in enumerate(documents):
                 doc_id = _stable_document_id(doc)
+                properties = {
+                    "content": doc.content,
+                    "metadata": json.dumps(doc.metadata),
+                    "doc_id": doc_id,
+                }
+                for key in self.filterable_metadata:
+                    value = doc.metadata.get(key)
+                    if isinstance(value, (str, int, float, bool)):
+                        properties[f"metadata_{key}"] = str(value)
                 batch.add_object(
-                    properties={
-                        "content": doc.content,
-                        "metadata": json.dumps(doc.metadata),
-                        "doc_id": doc_id,
-                    },
+                    properties=properties,
                     vector=list(embeddings[i]),
                     uuid=_stable_uuid(doc_id),
                 )
@@ -334,11 +428,18 @@ class WeaviateRetriever(BaseRetriever):
         _validate_top_k(top_k)
         collection = self._get_collection()
         query_vector = list(self._embedder.embed(query))
-        result = collection.query.near_vector(near_vector=query_vector, limit=top_k)
+        query_kwargs: dict[str, Any] = {"near_vector": query_vector, "limit": top_k}
+        native_filter = self._native_metadata_filter(metadata_filter)
+        if native_filter is not None:
+            query_kwargs["filters"] = native_filter
+        result = collection.query.near_vector(**query_kwargs)
         documents = []
         for obj in result.objects:
             metadata_raw = obj.properties.get("metadata")
-            metadata = json.loads(metadata_raw) if metadata_raw else {}
+            if isinstance(metadata_raw, dict):
+                metadata = metadata_raw
+            else:
+                metadata = json.loads(metadata_raw) if metadata_raw else {}
             documents.append(
                 Document(
                     content=obj.properties.get("content", ""),
@@ -425,9 +526,15 @@ class PineconeRetriever(BaseRetriever):
         _validate_top_k(top_k)
         index = self._get_index()
         query_vector = list(self._embedder.embed(query))
-        result = index.query(
-            vector=query_vector, top_k=top_k, include_metadata=True, namespace=self.namespace
-        )
+        query_kwargs: dict[str, Any] = {
+            "vector": query_vector,
+            "top_k": top_k,
+            "include_metadata": True,
+            "namespace": self.namespace,
+        }
+        if metadata_filter:
+            query_kwargs["filter"] = dict(metadata_filter)
+        result = index.query(**query_kwargs)
         documents = []
         for match in result.get("matches", []):
             metadata = dict(match.get("metadata", {}))

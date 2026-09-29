@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a short-lived worker without blocking the event loop.
 - RAG queries support exact metadata filters, source labels and maximum context
   size limits.
+- PostgreSQL, Qdrant and Pinecone use native metadata filters when available;
+  Weaviate now supports native filters for explicitly configured flattened
+  metadata fields and keeps a client-side fallback for other fields.
 
 ### Fixed
 

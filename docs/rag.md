@@ -44,10 +44,13 @@ context = pipeline.query(
 )
 ```
 
-The in-memory retrievers apply metadata filters before ranking. External vector
-stores currently filter the returned candidates in Python, so a filtered query
-may return fewer than `top_k` results; backend-native filtering is a future
-optimization.
+The in-memory retrievers apply metadata filters before ranking. PostgreSQL,
+Qdrant and Pinecone pass scalar filters to their native query APIs. Weaviate
+uses native filters for keys declared with
+`WeaviateRetriever(filterable_metadata=["type", "source"])`; other keys are
+filtered locally. The complete metadata is still preserved as JSON. Existing
+collections need a schema migration or recreation before adding new
+filterable keys.
 
 ## Vector-Store Retrievers
 
