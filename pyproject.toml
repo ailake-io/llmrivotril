@@ -147,6 +147,18 @@ Issues = "https://github.com/ailake-io/llmrivotril/issues"
 Documentation = "https://github.com/ailake-io/llmrivotril/tree/main/docs"
 Changelog = "https://github.com/ailake-io/llmrivotril/blob/main/CHANGELOG.md"
 
+[tool.hatch.build.targets.sdist]
+# Hatchling's default sdist inclusion doesn't respect .git/info/exclude (a
+# local-only ignore file, unlike the tracked .gitignore) and includes
+# whatever else sits in the working directory -- caught a local Claude Code
+# state file and a scratch venv leaking into a real build. Exclude those
+# classes of local-only artifacts explicitly rather than relying on VCS
+# ignore rules the build tool doesn't fully honor.
+exclude = [
+    "/.claude",
+    "/.venv*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
