@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI and release workflows now use `.github/constraints-ci.txt` to keep lint,
+  type-check, test, and packaging tool versions reproducible without pinning
+  runtime/provider dependencies for downstream applications.
+
 ### Added
 
 - Framework-integration adapters for CrewAI (`BaseLLM`), AG2/pyautogen

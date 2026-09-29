@@ -1,0 +1,10 @@
+# Reproducible versions for the CI toolchain.
+# Runtime/provider dependencies remain version ranges in pyproject.toml so
+# downstream applications can resolve them with their own dependency set.
+build==1.6.1
+httpx==0.28.1
+mypy==2.3.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.16.8
+twine==7.0.0

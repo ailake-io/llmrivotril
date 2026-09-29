@@ -267,8 +267,9 @@ encontrados bloqueios críticos de implementação no código.
    da rotina do CI.
 9. Corrigir ou documentar a origem do warning de `google.generativeai` emitido
    pelo `instructor`; o adapter Gemini do projeto já usa `google-genai`.
-10. Avaliar lockfile ou versões fixadas para as ferramentas e SDKs do CI, para
-    melhorar a reprodutibilidade.
+10. [x] Fixar as versões das ferramentas de lint, tipos, testes e empacotamento
+    em `.github/constraints-ci.txt`; as dependências de runtime continuam como
+    faixas para não restringir os ambientes consumidores.
 11. Decidir se a classificação PyPI deve continuar como Alpha ou avançar para
     Beta/Production.
 
