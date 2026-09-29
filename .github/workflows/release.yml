@@ -10,6 +10,14 @@ jobs:
   publish:
     name: Build and publish distributions
     runs-on: ubuntu-latest
+    # Configure this environment's protection rules (required reviewers,
+    # wait timer) in Settings -> Environments to gate the actual upload step
+    # behind manual approval -- switching from Trusted Publishing to a
+    # static API token removed OIDC's per-run, unexfiltratable credential;
+    # an approval gate is the mitigation for that trade-off.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/llmrivotril
     permissions:
       contents: read
 

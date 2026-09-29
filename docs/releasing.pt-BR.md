@@ -19,12 +19,25 @@ O repositório contém `.github/workflows/release.yml`, que constrói o wheel e 
 source distribution e publica com `twine` usando um token de API do PyPI.
 Setup único:
 
-1. Gere um token de API no PyPI (abrangente na conta pro primeiro upload;
-   restrinja ao projeto `llmrivotril` depois que ele existir lá).
+1. Gere um token de API no PyPI. Ele precisa ser abrangente na conta pra esse
+   primeiro upload (o projeto `llmrivotril` ainda não existe no PyPI, então o
+   PyPI não consegue restringir um token a ele).
 2. Adicione como secret do repositório com o nome `PYPI_API_TOKEN`
    (Settings → Secrets and variables → Actions).
+3. **Imediatamente após o primeiro upload bem-sucedido**, volte ao PyPI,
+   revogue esse token abrangente e gere um novo restrito só ao projeto
+   `llmrivotril` -- substitua o secret `PYPI_API_TOKEN` por ele. Um token
+   abrangente deixado ativo indefinidamente significa que um workflow
+   comprometido ou secret vazado poderia publicar em *qualquer* projeto da
+   conta, não só nesse.
+4. No GitHub Environment `pypi` do repositório (Settings → Environments),
+   considere adicionar reviewers obrigatórios/um wait timer. O `release.yml`
+   referencia esse environment especificamente pra que as regras de proteção
+   dele gatekeepem o passo real de upload pro PyPI -- essa é a mitigação por
+   usar um token estático de longa duração em vez de Trusted Publishing via
+   OIDC, que não tem uma credencial permanente equivalente pra proteger.
 
-Depois disso, publicar um GitHub Release a partir de uma tag de versão
+Depois do setup, publicar um GitHub Release a partir de uma tag de versão
 dispara o workflow automaticamente. `twine upload --skip-existing` torna uma
 nova execução do workflow (por exemplo, após uma falha transitória) segura --
 não dá erro em arquivos que já foram enviados para aquela versão.
