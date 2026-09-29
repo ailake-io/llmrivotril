@@ -131,12 +131,22 @@ class BaseCache(ABC):
     """Abstract base class for response caches."""
 
     @abstractmethod
-    def get(self, key: str) -> Any | None:
-        """Return the cached value or ``None`` if missing/expired."""
+    def get(self, key: str, prompt: str | None = None) -> Any | None:
+        """Return the cached value or ``None`` if missing/expired.
+
+        ``prompt`` is the raw current-turn prompt text, passed through so a
+        fuzzy-matching cache (e.g. ``SemanticCache``) can compare it against
+        stored prompts. Exact-match backends ignore it.
+        """
 
     @abstractmethod
-    def set(self, key: str, value: Any, ttl: float | None = None) -> None:
-        """Store a value, optionally with a TTL in seconds."""
+    def set(
+        self, key: str, value: Any, ttl: float | None = None, prompt: str | None = None
+    ) -> None:
+        """Store a value, optionally with a TTL in seconds.
+
+        ``prompt`` -- see :meth:`get`.
+        """
 
     @abstractmethod
     def delete(self, key: str) -> None:
@@ -154,7 +164,7 @@ class InMemoryCache(BaseCache):
         self._store: dict[str, tuple[Any, float | None]] = {}
         self._lock = threading.Lock()
 
-    def get(self, key: str) -> Any | None:
+    def get(self, key: str, prompt: str | None = None) -> Any | None:
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
@@ -165,7 +175,9 @@ class InMemoryCache(BaseCache):
                 return None
             return value
 
-    def set(self, key: str, value: Any, ttl: float | None = None) -> None:
+    def set(
+        self, key: str, value: Any, ttl: float | None = None, prompt: str | None = None
+    ) -> None:
         expires_at = time.time() + ttl if ttl is not None else None
         with self._lock:
             self._store[key] = (value, expires_at)
@@ -200,7 +212,7 @@ class DiskCache(BaseCache):
         )
         self._conn.commit()
 
-    def get(self, key: str) -> Any | None:
+    def get(self, key: str, prompt: str | None = None) -> Any | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT value, expires_at FROM cache WHERE key = ?", (key,)
@@ -214,7 +226,9 @@ class DiskCache(BaseCache):
                 return None
             return _decode_json(json.loads(value))
 
-    def set(self, key: str, value: Any, ttl: float | None = None) -> None:
+    def set(
+        self, key: str, value: Any, ttl: float | None = None, prompt: str | None = None
+    ) -> None:
         expires_at = time.time() + ttl if ttl is not None else None
         encoded = json.dumps(_encode_json(value))
         with self._lock:
@@ -268,13 +282,15 @@ class RedisCache(BaseCache):
     def _namespaced(self, key: str) -> str:
         return f"{self._prefix}{key}"
 
-    def get(self, key: str) -> Any | None:
+    def get(self, key: str, prompt: str | None = None) -> Any | None:
         raw = self._client.get(self._namespaced(key))
         if raw is None:
             return None
         return _decode_json(json.loads(raw))
 
-    def set(self, key: str, value: Any, ttl: float | None = None) -> None:
+    def set(
+        self, key: str, value: Any, ttl: float | None = None, prompt: str | None = None
+    ) -> None:
         encoded = json.dumps(_encode_json(value))
         if ttl is not None:
             self._client.set(self._namespaced(key), encoded, px=max(1, int(ttl * 1000)))

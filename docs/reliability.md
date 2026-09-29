@@ -1,5 +1,7 @@
 # Reliability: Resilience, Caching & Schema Repair
 
+*[Português](reliability.pt-BR.md)*
+
 [← Back to README](../README.md)
 
 ## Resilience
@@ -61,6 +63,61 @@ agent = RivotrilAgent(
 )
 ```
 
+### Semantic Cache *(optional, off by default)*
+
+`InMemoryCache`/`DiskCache`/`RedisCache` only hit on a byte-identical repeated
+prompt. `SemanticCache` wraps any of them with an embedding-similarity lookup,
+so a paraphrased repeat ("what's 2 plus 2?" vs. "what is 2+2?") hits too.
+Requires `pip install "llmrivotril[semantic]"` (loaded lazily, same as the
+semantic guardrails):
+
+```python
+from llmrivotril import RivotrilAgent
+from llmrivotril.semantic_cache import SemanticCache
+
+agent = RivotrilAgent(
+    api_key="sk-...",
+    cache=SemanticCache(
+        similarity_threshold=0.95
+    ),  # backend=DiskCache(...)/RedisCache(...) also accepted
+)
+```
+
+**This trades precision for recall.** A prompt that's *similar but not
+equivalent* (different numbers, a negated question, a changed constraint) can
+embed close enough to return a wrong cached answer with full confidence. Keep
+`similarity_threshold` conservative and only opt in where that trade-off is
+acceptable -- it is a separate class specifically so it's never a silent
+default.
+
+## Memory Token Budget & Summarization
+
+Two more, independent opt-ins for `RivotrilAgent`'s default `MemoryStore`
+(both no-ops unless configured; neither applies if you pass your own
+`memory=` instance):
+
+```python
+agent = RivotrilAgent(
+    api_key="sk-...",
+    memory_max_tokens=2000,  # trims oldest turns by actual token count
+    memory_summarize=True,  # compacts trimmed turns into a summary instead of dropping them
+    memory_summarize_trigger_turns=20,
+)
+```
+
+- `memory_max_tokens` layers a token-budget cap on top of the existing
+  `retention_window` turn-count cap -- turns vary a lot in length, so this
+  bounds prompt growth in a long conversation far more directly than a fixed
+  turn count. No behavior change unless set (`None` by default).
+- `memory_summarize=True` replaces the turns that would otherwise be silently
+  dropped with a short LLM-generated summary once history passes
+  `memory_summarize_trigger_turns`, via a direct provider call (bypasses
+  guardrails/cache/retry -- internal housekeeping, not a user-facing turn). A
+  failed summarization call is logged and skipped rather than raised; the
+  turns are still trimmed either way. This costs one extra LLM call per
+  summarization round to save tokens on every turn afterward -- only worth it
+  for genuinely long conversations.
+
 ## Schema-Repair Fallback
 
 When structured outputs fail Pydantic validation, the agent can ask the model to
@@ -70,8 +127,10 @@ fix its response:
 from pydantic import BaseModel
 from llmrivotril import RivotrilAgent
 
+
 class Answer(BaseModel):
     answer: str
+
 
 agent = RivotrilAgent(
     api_key="sk-...",

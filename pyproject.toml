@@ -89,6 +89,20 @@ vector-stores = [
     "weaviate-client>=4.4.0",
     "pinecone>=10.0.0",
 ]
+crewai = [
+    "crewai>=0.80.0",
+]
+langchain = [
+    "langchain-core>=0.3.0",
+]
+adk = [
+    "google-adk>=1.0.0",
+]
+integrations = [
+    "crewai>=0.80.0",
+    "langchain-core>=0.3.0",
+    "google-adk>=1.0.0",
+]
 ci = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -118,6 +132,9 @@ dev = [
     "qdrant-client>=1.10.0",
     "weaviate-client>=4.4.0",
     "pinecone>=10.0.0",
+    "crewai>=0.80.0",
+    "langchain-core>=0.3.0",
+    "google-adk>=1.0.0",
 ]
 
 [project.scripts]
@@ -182,5 +199,34 @@ module = [
     "qdrant_client.*",
     "weaviate.*",
     "pinecone.*",
+    "crewai.*",
+    "langchain_core.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# These adapters subclass an optional framework's base class (CrewAI's
+# BaseLLM, LangChain's BaseChatModel, ADK's BaseLlm). When that framework
+# isn't installed (the case in CI's `.[ci]` env), ignore_missing_imports
+# above types the base class as `Any`, and mypy's disallow_subclassing_any
+# (part of `strict`) then flags the class definition itself -- a check
+# that's valuable elsewhere but meaningless here, since the whole point of
+# each module is to subclass a class that only exists behind an optional
+# extra. Disabling just that error code for these three files avoids an
+# inline ignore that would flip to "unused" the moment the extra is
+# actually installed (the same fragility class as the numpy import above).
+module = [
+    "llmrivotril.integrations.crewai",
+    "llmrivotril.integrations.langchain",
+]
+disable_error_code = ["misc"]
+
+[[tool.mypy.overrides]]
+# Same "misc" reasoning as above, plus: ADK's BaseLlm is a pydantic model,
+# and RivotrilLlm.__init__ passes this subclass's own `agent` field to
+# super().__init__() (pydantic validates against the full subclass field
+# set at runtime regardless of the literal super() call), but mypy only
+# knows BaseLlm's own fields there and flags it as an unexpected kwarg
+# ("call-arg").
+module = ["llmrivotril.integrations.adk"]
+disable_error_code = ["misc", "call-arg"]

@@ -299,3 +299,38 @@ evidência de prontidão para CI se for medido no mesmo conjunto de
 dependências que o CI real instala -- rodar com mais extras instalados
 localmente do que o CI instala pode mascarar exatamente esse tipo de
 regressão.
+
+## Integrações com frameworks de agentes -- 29/09/2026
+
+Adicionados adapters opcionais para CrewAI, AG2/pyautogen, LangChain/LangGraph
+e Google ADK sob `llmrivotril.integrations` (detalhes e exemplos em
+`docs/integrations.md`). Nenhum é dependência obrigatória: CrewAI/LangChain/ADK
+ficam atrás de extras próprios (`crewai`, `langchain`, `adk`), e o adapter do
+AG2 não precisa de pacote nenhum (protocolo estrutural, satisfeito por
+assinatura de método, não por herança).
+
+Mesma disciplina de verificação desta sessão: os três adapters baseados em
+classe real (CrewAI, LangChain, ADK) foram testados contra os pacotes de
+verdade instalados, não só contra mocks/documentação -- isso revelou dois bugs
+reais que a doc oficial sozinha não mostrava:
+
+- CrewAI: a assinatura real de `BaseLLM.call()` instalada tem `from_task`,
+  `from_agent` e `response_model`, nenhum documentado na página oficial de
+  "Custom LLM" consultada -- o override original não os declarava, o que
+  quebraria com qualquer chamador real do CrewAI que passasse esses kwargs.
+- Google ADK: `RivotrilLlm.__init__` passa o campo `agent` (só desta subclasse)
+  para `super().__init__()`; a validação pydantic real exige esse campo mesmo
+  chamada via `super()`, então uma primeira tentativa de só atribuir
+  `self.agent` depois do `super().__init__()` falhava com
+  `ValidationError: agent Field required`.
+
+mypy validado nos dois ambientes (com e sem os três pacotes instalados) via
+overrides de módulo em vez de `# type: ignore` inline -- um inline ficaria
+"usado" só num dos dois ambientes e "não usado" (erro, com
+`warn_unused_ignores`) no outro, mesma classe de fragilidade do fix do numpy
+acima.
+
+Não verificado: nenhum adapter foi exercitado dentro de um crew/group
+chat/grafo multi-agente real -- só chamada única mockada + chamada única
+contra a classe real instalada. `docs/integrations.md` documenta isso
+explicitamente na seção "Not verified against a live multi-agent run".

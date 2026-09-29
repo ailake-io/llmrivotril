@@ -33,6 +33,7 @@ from .rag.vector_stores import (
     WeaviateRetriever,
 )
 from .semantic import EmbeddingFaithfulnessVerifier, SemanticTopicGuardrail
+from .semantic_cache import SemanticCache
 from .tools import ToolCall, ToolRegistry
 from .verifier import ModelBasedFaithfulnessVerifier
 
@@ -49,6 +50,7 @@ __all__ = [
     "InMemoryCache",
     "DiskCache",
     "RedisCache",
+    "SemanticCache",
     "PIIRedactor",
     "LLMRivotrilError",
     "GuardrailViolationError",
