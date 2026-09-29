@@ -469,6 +469,7 @@ class ModelBasedFaithfulnessVerifier:
         system_prompt: str | None = None,
         judge_prompt: str | None = None,
         confidence_threshold: float = 0.7,
+        fail_open: bool = False,
     ) -> None:
         self.model = model
         self.api_key = api_key
@@ -476,6 +477,7 @@ class ModelBasedFaithfulnessVerifier:
         self.system_prompt = system_prompt
         self.judge_prompt = judge_prompt or self._DEFAULT_PROMPT
         self.confidence_threshold = confidence_threshold
+        self.fail_open = fail_open
         self._client: Any | None = None
 
     def _get_client(self) -> Any:
@@ -517,8 +519,7 @@ class ModelBasedFaithfulnessVerifier:
             )
         except Exception as exc:
             logger.warning("Model-based faithfulness check failed: %s", exc)
-            # Fail open when the judge itself errors, to avoid blocking all traffic.
-            return True
+            return self.fail_open
 
         logger.debug(
             "Faithfulness verdict: %s (confidence=%.2f, reason=%s)",

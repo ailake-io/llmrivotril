@@ -184,9 +184,7 @@ class InMemoryEmbeddingRetriever(BaseRetriever):
 
         dots = matrix @ query_vec
         norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query_vec)
-        similarities = np.divide(
-            dots, norms, out=np.zeros_like(dots), where=norms > 0
-        )
+        similarities = np.divide(dots, norms, out=np.zeros_like(dots), where=norms > 0)
         top_indices = np.argsort(-similarities)[:top_k]
         return [self._documents[i] for i in top_indices]
 

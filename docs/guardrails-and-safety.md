@@ -41,6 +41,11 @@ rate limit), the request is blocked rather than silently let through. Pass
 `fail_open=True` to let requests through instead when the moderation call
 fails, or `check_input=False`/`check_output=False` to only check one side.
 
+The model-based grounding verifier also exposes the same explicit policy. It
+fails closed by default, which is appropriate for safety-sensitive or
+regulated responses; opt into availability over strict grounding with
+`ModelBasedFaithfulnessVerifier(fail_open=True)`.
+
 ## PII Redaction
 
 Redact sensitive information from inputs and outputs before they reach the LLM

@@ -127,8 +127,8 @@ tool-calling e normalização de responses para componentes menores.
 
 #### 12. Compatibilidade de dependências
 
-O provider Gemini usa `google.generativeai`, que emite aviso de descontinuação
-no ambiente atual.
+O provider Gemini usava `google.generativeai`, que emitia aviso de
+descontinuação no ambiente atual.
 
 **Correção:** migrar para `google.genai`, atualizar testes e documentar a
 matriz de versões suportadas.
@@ -184,8 +184,11 @@ de qualidade antes de iniciar a seguinte.
 - [x] Cache passou a considerar provider, endpoint e fingerprint do schema.
 - [x] Métricas distinguem erros genéricos de bloqueios e salvam snapshots de
   forma atômica.
-- [ ] Política de falhas, refatoração, SDK Gemini, CI e testes de contrato
-  ainda aguardam execução.
+- [x] Políticas fail-open/fail-closed ficaram explícitas no verificador de
+  grounding, e retries passaram a respeitar o provider selecionado.
+- [x] SDK Gemini migrado para `google-genai`/`google.genai`, com testes de
+  geração síncrona, assíncrona e streaming.
+- [ ] Refatoração, CI e testes de contrato ainda aguardam execução.
 
 ## Validação desta execução
 
@@ -193,8 +196,12 @@ de qualidade antes de iniciar a seguinte.
 - `ruff check src tests` passou.
 - Os arquivos alterados nesta execução passaram em `ruff format --check`.
 - `git diff --check` passou.
+- O gate global de formatação passou para `src` e `tests`.
 - O streaming Bedrock assíncrono passou isoladamente.
+- O adapter Gemini passou nos testes mockados do SDK novo; a integração real
+  depende da instalação de `google-genai`.
 - O conjunto completo ainda deve ser investigado: no ambiente atual, alguns
   cenários combinados de `asyncio.to_thread`/`TestClient` permanecem sem
-  concluir, embora os casos de regressão isolados passem. Quatro arquivos
-  preexistentes ainda precisam de ajuste de formatação antes do gate global.
+  concluir, embora os casos de regressão isolados passem.
+- O `mypy` local (`2.3.1`) encerra com erro interno antes de emitir
+  diagnósticos; é necessário repetir o gate com uma versão fixada e estável.

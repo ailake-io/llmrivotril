@@ -26,7 +26,6 @@ from .resilience import (
     AsyncRateLimiter,
     CircuitBreaker,
     RateLimiter,
-    default_retryable_exceptions,
     make_retry,
 )
 from .tools import ToolRegistry, normalize_tool_calls
@@ -178,7 +177,7 @@ class RivotrilAgent:
             self.rate_limiter = RateLimiter(rate_limit_max_calls, rate_limit_per_seconds)
             self.async_rate_limiter = AsyncRateLimiter(rate_limit_max_calls, rate_limit_per_seconds)
 
-        retry_exceptions = default_retryable_exceptions()
+        retry_exceptions = self.provider.retryable_exceptions()
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=circuit_failure_threshold,
             recovery_timeout=circuit_recovery_timeout,

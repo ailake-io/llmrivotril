@@ -217,5 +217,3 @@ def test_load_file_config_reads_yml_extension(temp_config):
 
     config = load_file_config()
     assert config["model"] == "yml-model"
-
-

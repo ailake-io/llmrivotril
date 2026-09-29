@@ -134,8 +134,19 @@ def test_model_based_verifier_rejects_ungrounded_response():
         assert result is False
 
 
-def test_model_based_verifier_fails_open_on_judge_error():
+def test_model_based_verifier_fails_closed_by_default_on_judge_error():
     verifier = ModelBasedFaithfulnessVerifier(api_key="test-key")
+
+    with patch.object(verifier, "_get_client") as mock_get_client:
+        mock_get_client.return_value.chat.completions.create.side_effect = RuntimeError("API down")
+
+        result = verifier.verify("Any response.", "Any context.")
+
+        assert result is False
+
+
+def test_model_based_verifier_can_fail_open_on_judge_error():
+    verifier = ModelBasedFaithfulnessVerifier(api_key="test-key", fail_open=True)
 
     with patch.object(verifier, "_get_client") as mock_get_client:
         mock_get_client.return_value.chat.completions.create.side_effect = RuntimeError("API down")

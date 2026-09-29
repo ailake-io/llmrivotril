@@ -133,26 +133,20 @@ def test_cohere_provider_unstructured():
         assert response.text == "Hello from Cohere"
 
 
-@pytest.mark.skipif(
-    not _package_installed("google.generativeai"), reason="google-generativeai not installed"
-)
+@pytest.mark.skipif(not _package_installed("google.genai"), reason="google-genai not installed")
 def test_gemini_provider_unstructured():
     provider = GeminiProvider(api_key="test-key")
     mock_response = MagicMock()
     mock_response.text = "Hello from Gemini"
 
-    with patch("google.generativeai.configure") as mock_configure:
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-        mock_model_class = MagicMock(return_value=mock_model)
+    with patch("google.genai.Client") as mock_client_class:
+        mock_client_class.return_value.models.generate_content.return_value = mock_response
+        response = provider.complete(
+            messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
+        )
 
-        with patch("google.generativeai.GenerativeModel", mock_model_class):
-            response = provider.complete(
-                messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
-            )
-
-            assert response.text == "Hello from Gemini"
-            mock_configure.assert_called_once_with(api_key="test-key")
+        assert response.text == "Hello from Gemini"
+        mock_client_class.assert_called_once_with(api_key="test-key")
 
 
 def test_get_provider_resolves_names():
@@ -270,19 +264,17 @@ def test_gemini_provider_unstructured_mocked():
     fake_genai = MagicMock()
     mock_response = MagicMock()
     mock_response.text = "Hello from Gemini"
-    mock_model = MagicMock()
-    mock_model.generate_content.return_value = mock_response
-    fake_genai.GenerativeModel.return_value = mock_model
+    fake_genai.Client.return_value.models.generate_content.return_value = mock_response
 
     fake_google = MagicMock()
-    fake_google.generativeai = fake_genai
-    with patch.dict(sys.modules, {"google": fake_google, "google.generativeai": fake_genai}):
+    fake_google.genai = fake_genai
+    with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai}):
         response = provider.complete(
             messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
         )
 
     assert response.text == "Hello from Gemini"
-    fake_genai.configure.assert_called_once_with(api_key="test-key")
+    fake_genai.Client.assert_called_once_with(api_key="test-key")
 
 
 @pytest.mark.asyncio
@@ -291,13 +283,13 @@ async def test_gemini_provider_async_unstructured_mocked():
     fake_genai = MagicMock()
     mock_response = MagicMock()
     mock_response.text = "Async Gemini"
-    mock_model = MagicMock()
-    mock_model.generate_content_async = AsyncMock(return_value=mock_response)
-    fake_genai.GenerativeModel.return_value = mock_model
+    fake_genai.Client.return_value.aio.models.generate_content = AsyncMock(
+        return_value=mock_response
+    )
 
     fake_google = MagicMock()
-    fake_google.generativeai = fake_genai
-    with patch.dict(sys.modules, {"google": fake_google, "google.generativeai": fake_genai}):
+    fake_google.genai = fake_genai
+    with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai}):
         response = await provider.acomplete(
             messages=[{"role": "user", "content": "hi"}], model="gemini-pro"
         )
@@ -716,40 +708,37 @@ async def test_cohere_provider_astream_yields_text_generation_events_mocked():
 def test_gemini_provider_stream_yields_text_chunks_mocked():
     provider = GeminiProvider(api_key="test-key")
     fake_genai = MagicMock()
-    mock_model = MagicMock()
-    mock_model.generate_content.return_value = iter([MagicMock(text="Hel"), MagicMock(text="lo")])
-    fake_genai.GenerativeModel.return_value = mock_model
+    fake_genai.Client.return_value.models.generate_content_stream.return_value = iter(
+        [MagicMock(text="Hel"), MagicMock(text="lo")]
+    )
 
     fake_google = MagicMock()
-    fake_google.generativeai = fake_genai
-    with patch.dict(sys.modules, {"google": fake_google, "google.generativeai": fake_genai}):
+    fake_google.genai = fake_genai
+    with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai}):
         chunks = list(
             provider.stream(messages=[{"role": "user", "content": "hi"}], model="gemini-pro")
         )
 
     assert chunks == ["Hel", "lo"]
-    mock_model.generate_content.assert_called_once_with("hi", stream=True)
+    fake_genai.Client.return_value.models.generate_content_stream.assert_called_once_with(
+        model="gemini-pro", contents="hi"
+    )
 
 
 @pytest.mark.asyncio
 async def test_gemini_provider_astream_yields_text_chunks_mocked():
     provider = GeminiProvider(api_key="test-key")
     fake_genai = MagicMock()
-    mock_model = MagicMock()
 
-    async def _fake_generate_content_async(*args, **kwargs):
-        async def _aiter():
-            for text in ["Hel", "lo"]:
-                yield MagicMock(text=text)
+    async def _aiter():
+        for text in ["Hel", "lo"]:
+            yield MagicMock(text=text)
 
-        return _aiter()
-
-    mock_model.generate_content_async = _fake_generate_content_async
-    fake_genai.GenerativeModel.return_value = mock_model
+    fake_genai.Client.return_value.aio.models.generate_content_stream.return_value = _aiter()
 
     fake_google = MagicMock()
-    fake_google.generativeai = fake_genai
-    with patch.dict(sys.modules, {"google": fake_google, "google.generativeai": fake_genai}):
+    fake_google.genai = fake_genai
+    with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai}):
         chunks = [
             chunk
             async for chunk in provider.astream(

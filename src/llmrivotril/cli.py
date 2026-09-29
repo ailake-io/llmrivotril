@@ -67,7 +67,7 @@ def doctor() -> None:
     provider_packages = {
         "anthropic": "anthropic",
         "cohere": "cohere",
-        "gemini": "google.generativeai",
+        "gemini": "google.genai",
     }
     installed = []
     missing = []

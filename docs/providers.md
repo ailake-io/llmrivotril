@@ -34,6 +34,9 @@ Install the optional SDKs:
 pip install llmrivotril[providers]
 ```
 
+The Gemini extra uses the maintained `google-genai` SDK and imports it as
+`google.genai`; the deprecated `google-generativeai` package is no longer used.
+
 Supported providers: `openai` (default), `azure_openai`, `anthropic`, `cohere`, `gemini`, `bedrock`.
 
 The plain OpenAI-compatible path (`base_url=`) only works for endpoints that

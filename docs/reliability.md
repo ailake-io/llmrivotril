@@ -19,6 +19,12 @@ agent = RivotrilAgent(
 )
 ```
 
+Retries use transient exception types declared by the selected provider. This
+prevents an Anthropic, Cohere, Gemini, or Bedrock adapter from being governed
+only by OpenAI exception classes. Unknown custom providers retain the
+OpenAI-compatible defaults unless they override
+`BaseProvider.retryable_exceptions()`.
+
 ## Response Caching
 
 Avoid repeated LLM calls for identical prompts by enabling a cache:

@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from .resilience import retryable_exceptions_for_provider
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -61,6 +63,10 @@ class BaseProvider(ABC):
     """Abstract base class for LLM providers."""
 
     name: str = "base"
+
+    def retryable_exceptions(self) -> tuple[type[BaseException], ...]:
+        """Return transient SDK exceptions that the agent may retry."""
+        return retryable_exceptions_for_provider(self.name)
 
     def __init__(
         self, api_key: str | None = None, base_url: str | None = None, **kwargs: Any
@@ -668,8 +674,9 @@ class CohereProvider(BaseProvider):
 class GeminiProvider(BaseProvider):
     """Google Gemini provider.
 
-    Requires the ``google-generativeai`` package. Streaming passes
-    ``stream=True`` to ``generate_content``/``generate_content_async``.
+    Requires the ``google-genai`` package. The adapter uses the current
+    ``google.genai.Client`` API for synchronous, asynchronous, and streaming
+    generation.
     """
 
     name = "gemini"
@@ -682,20 +689,9 @@ class GeminiProvider(BaseProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            import google.generativeai as genai
+            from google import genai
 
-            # getattr, not genai.configure(...) directly: google-generativeai's
-            # own stub doesn't declare `configure` as exported even though it
-            # exists at runtime, so a direct call is an attr-defined error
-            # whenever the package happens to be installed (never in CI's
-            # `.[ci]` env, always in a `.[dev]` one) -- an inline `# type:
-            # ignore[attr-defined]` would just flip to "unused" in the other
-            # environment. getattr() sidesteps the static check either way
-            # without relying on which environment mypy happens to run in.
-            getattr(genai, "configure")(  # noqa: B009 -- see comment above
-                api_key=self.api_key, **self.extra_kwargs
-            )
-            self._client = genai
+            self._client = genai.Client(api_key=self.api_key, **self.extra_kwargs)
         return self._client
 
     def _build_gemini_content(self, messages: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
@@ -725,8 +721,10 @@ class GeminiProvider(BaseProvider):
         if response_model is not None:
             prompt = self._inject_response_model_prompt(prompt, response_model)
 
-        model_obj = client.GenerativeModel(model_name=model, system_instruction=system)
-        response = model_obj.generate_content(prompt, **kwargs)
+        request_kwargs = dict(kwargs)
+        if system:
+            request_kwargs.setdefault("config", {"system_instruction": system})
+        response = client.models.generate_content(model=model, contents=prompt, **request_kwargs)
         content = response.text
 
         if response_model is not None:
@@ -749,8 +747,12 @@ class GeminiProvider(BaseProvider):
         if response_model is not None:
             prompt = self._inject_response_model_prompt(prompt, response_model)
 
-        model_obj = client.GenerativeModel(model_name=model, system_instruction=system)
-        response = await model_obj.generate_content_async(prompt, **kwargs)
+        request_kwargs = dict(kwargs)
+        if system:
+            request_kwargs.setdefault("config", {"system_instruction": system})
+        response = await client.aio.models.generate_content(
+            model=model, contents=prompt, **request_kwargs
+        )
         content = response.text
 
         if response_model is not None:
@@ -768,8 +770,12 @@ class GeminiProvider(BaseProvider):
         system, contents = self._build_gemini_content(messages)
         prompt = "\n\n".join(contents)
 
-        model_obj = client.GenerativeModel(model_name=model, system_instruction=system)
-        response = model_obj.generate_content(prompt, stream=True, **kwargs)
+        request_kwargs = dict(kwargs)
+        if system:
+            request_kwargs.setdefault("config", {"system_instruction": system})
+        response = client.models.generate_content_stream(
+            model=model, contents=prompt, **request_kwargs
+        )
         for chunk in response:
             text = getattr(chunk, "text", None)
             if text:
@@ -785,8 +791,14 @@ class GeminiProvider(BaseProvider):
         system, contents = self._build_gemini_content(messages)
         prompt = "\n\n".join(contents)
 
-        model_obj = client.GenerativeModel(model_name=model, system_instruction=system)
-        response = await model_obj.generate_content_async(prompt, stream=True, **kwargs)
+        request_kwargs = dict(kwargs)
+        if system:
+            request_kwargs.setdefault("config", {"system_instruction": system})
+        response = client.aio.models.generate_content_stream(
+            model=model, contents=prompt, **request_kwargs
+        )
+        if hasattr(response, "__await__"):
+            response = await response
         async for chunk in response:
             text = getattr(chunk, "text", None)
             if text:

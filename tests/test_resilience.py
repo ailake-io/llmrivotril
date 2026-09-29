@@ -11,6 +11,7 @@ from llmrivotril.resilience import (
     CircuitState,
     RateLimiter,
     default_retryable_exceptions,
+    retryable_exceptions_for_provider,
 )
 
 
@@ -150,6 +151,10 @@ def test_default_retryable_exceptions_prefers_openai_errors():
     assert openai.APIConnectionError in exceptions
     assert openai.APITimeoutError in exceptions
     assert openai.InternalServerError in exceptions
+
+
+def test_unknown_provider_keeps_openai_compatible_retry_defaults():
+    assert retryable_exceptions_for_provider("custom") == default_retryable_exceptions()
 
 
 @pytest.mark.asyncio

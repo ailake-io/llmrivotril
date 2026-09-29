@@ -29,8 +29,7 @@ class Guardrail(BaseModel):
     def _get_keyword_patterns(self) -> "list[tuple[str, re.Pattern[str]]]":
         if self._keyword_patterns is None:
             self._keyword_patterns = [
-                (kw, re.compile(rf"\b{re.escape(kw.lower())}\b"))
-                for kw in self.disallowed_keywords
+                (kw, re.compile(rf"\b{re.escape(kw.lower())}\b")) for kw in self.disallowed_keywords
             ]
         return self._keyword_patterns
 

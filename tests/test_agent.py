@@ -71,6 +71,15 @@ def test_agent_without_response_model():
     assert agent.memory.get_context()[-1]["role"] == "assistant"
 
 
+def test_agent_uses_provider_retryable_exceptions():
+    provider = _MockProvider()
+    provider.retryable_exceptions = lambda: (ValueError,)
+
+    agent = RivotrilAgent(api_key="test-key", provider=provider)
+
+    assert agent.circuit_breaker.expected_exception == (ValueError,)
+
+
 def test_agent_with_guardrail_block():
     guardrail = Guardrail(name="safe", disallowed_keywords=["forbidden"])
     agent, _ = _make_agent(guardrails=[guardrail])

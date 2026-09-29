@@ -1,6 +1,7 @@
 """Resilience primitives for LLM calls: rate limiting, retry, and circuit breaker."""
 
 import asyncio
+import importlib
 import logging
 import time
 from collections.abc import Callable
@@ -39,6 +40,81 @@ def default_retryable_exceptions() -> tuple[type[BaseException], ...]:
         openai.APITimeoutError,
         openai.InternalServerError,
     )
+
+
+def _load_exception_types(
+    module_name: str, names: tuple[str, ...]
+) -> tuple[type[BaseException], ...]:
+    """Load exception classes without importing optional provider SDKs eagerly."""
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return ()
+
+    exceptions: list[type[BaseException]] = []
+    for name in names:
+        exception = getattr(module, name, None)
+        if isinstance(exception, type) and issubclass(exception, BaseException):
+            exceptions.append(exception)
+    return tuple(exceptions)
+
+
+def retryable_exceptions_for_provider(provider: str) -> tuple[type[BaseException], ...]:
+    """Return transient exception types for a named provider.
+
+    Provider SDKs are optional, so their exception modules are imported only
+    when the corresponding provider is selected. Unknown providers retain the
+    OpenAI-compatible default used by earlier releases.
+    """
+    provider = provider.lower()
+    if provider in {"openai", "azure_openai"}:
+        return default_retryable_exceptions()
+
+    specs: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+        "anthropic": (
+            (
+                "anthropic",
+                ("RateLimitError", "APIConnectionError", "APITimeoutError", "InternalServerError"),
+            ),
+        ),
+        "cohere": (
+            (
+                "cohere.errors",
+                (
+                    "TooManyRequestsError",
+                    "ServiceUnavailableError",
+                    "GatewayTimeoutError",
+                    "InternalServerError",
+                ),
+            ),
+        ),
+        "gemini": (
+            (
+                "google.api_core.exceptions",
+                (
+                    "ResourceExhausted",
+                    "ServiceUnavailable",
+                    "DeadlineExceeded",
+                    "InternalServerError",
+                ),
+            ),
+        ),
+        "bedrock": (
+            (
+                "botocore.exceptions",
+                (
+                    "ConnectTimeoutError",
+                    "ConnectionClosedError",
+                    "EndpointConnectionError",
+                    "ReadTimeoutError",
+                ),
+            ),
+        ),
+    }
+    loaded: list[type[BaseException]] = []
+    for module_name, names in specs.get(provider, ()):
+        loaded.extend(_load_exception_types(module_name, names))
+    return tuple(dict.fromkeys(loaded)) or default_retryable_exceptions()
 
 
 class RateLimiter:

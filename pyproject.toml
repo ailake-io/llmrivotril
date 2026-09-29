@@ -43,7 +43,7 @@ cohere = [
     "cohere>=5.0.0",
 ]
 gemini = [
-    "google-generativeai>=0.7.0",
+    "google-genai>=1.0.0",
 ]
 bedrock = [
     "boto3>=1.28.0",
