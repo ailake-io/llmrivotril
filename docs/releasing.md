@@ -15,11 +15,19 @@
 
 ## PyPI release
 
-The repository contains `.github/workflows/release.yml`. Configure its `pypi`
-GitHub environment as a PyPI Trusted Publisher for the exact repository and
-workflow, then publish a GitHub Release from the matching tag. The workflow
-builds both the wheel and source distribution and publishes them without a
-long-lived API token.
+The repository contains `.github/workflows/release.yml`, which builds the
+wheel and source distribution and publishes them with `twine` using a PyPI
+API token. One-time setup:
+
+1. Generate an API token on PyPI (account-wide for the first upload; scope it
+   to the `llmrivotril` project once it exists there).
+2. Add it as a repository secret named `PYPI_API_TOKEN`
+   (Settings → Secrets and variables → Actions).
+
+After that, publishing a GitHub Release from a version tag triggers the
+workflow automatically. `twine upload --skip-existing` makes a rerun of the
+workflow (e.g. after a transient failure) safe -- it won't error on files
+already uploaded for that version.
 
 Do not reuse a version that has already been uploaded: PyPI release files are
 immutable. Update the changelog and package version before creating a new tag.

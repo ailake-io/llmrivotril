@@ -1,6 +1,6 @@
 # LLM-Rivotril
 
-*[Português](README.pt-BR.md)*
+*[Português](https://github.com/ailake-io/llmrivotril/blob/main/README.pt-BR.md)*
 
 A lightweight Python framework to reduce LLM hallucinations, enforce guardrails, manage stateful memory, and monitor performance through a local web dashboard.
 
@@ -71,15 +71,15 @@ print(response)
 
 ## Documentation
 
-- [Providers](docs/providers.md) — OpenAI-compatible servers, Anthropic, Cohere, Gemini, Azure OpenAI, AWS Bedrock.
-- [Guardrails & Safety](docs/guardrails-and-safety.md) — Semantic guardrails, moderation, PII redaction, token budget.
-- [RAG](docs/rag.md) — Local pipeline, vector-store retrievers (pgvector/Qdrant/Weaviate/Pinecone), grounding verification.
-- [Framework Integrations](docs/integrations.md) — CrewAI, AG2/AutoGen, LangChain/LangGraph, Google ADK adapters, and multi-agent setup notes.
-- [Async, Streaming & Function Calling](docs/streaming-and-tools.md)
-- [Reliability](docs/reliability.md) — Resilience, response caching (including semantic cache), memory token budget & summarization, schema-repair fallback.
-- [Observability](docs/observability.md) — Metrics persistence, local dashboard, benchmark, cost tracking.
-- [Configuration](docs/configuration.md) — Config files, environment variables, plugins, project scaffolding.
-- [Releasing](docs/releasing.md) — Build validation, TestPyPI, and the PyPI release workflow.
+- [Providers](https://github.com/ailake-io/llmrivotril/blob/main/docs/providers.md) — OpenAI-compatible servers, Anthropic, Cohere, Gemini, Azure OpenAI, AWS Bedrock.
+- [Guardrails & Safety](https://github.com/ailake-io/llmrivotril/blob/main/docs/guardrails-and-safety.md) — Semantic guardrails, moderation, PII redaction, token budget.
+- [RAG](https://github.com/ailake-io/llmrivotril/blob/main/docs/rag.md) — Local pipeline, vector-store retrievers (pgvector/Qdrant/Weaviate/Pinecone), grounding verification.
+- [Framework Integrations](https://github.com/ailake-io/llmrivotril/blob/main/docs/integrations.md) — CrewAI, AG2/AutoGen, LangChain/LangGraph, Google ADK adapters, and multi-agent setup notes.
+- [Async, Streaming & Function Calling](https://github.com/ailake-io/llmrivotril/blob/main/docs/streaming-and-tools.md)
+- [Reliability](https://github.com/ailake-io/llmrivotril/blob/main/docs/reliability.md) — Resilience, response caching (including semantic cache), memory token budget & summarization, schema-repair fallback.
+- [Observability](https://github.com/ailake-io/llmrivotril/blob/main/docs/observability.md) — Metrics persistence, local dashboard, benchmark, cost tracking.
+- [Configuration](https://github.com/ailake-io/llmrivotril/blob/main/docs/configuration.md) — Config files, environment variables, plugins, project scaffolding.
+- [Releasing](https://github.com/ailake-io/llmrivotril/blob/main/docs/releasing.md) — Build validation, TestPyPI, and the PyPI release workflow.
 
 ## Interactive Demo
 
@@ -159,4 +159,4 @@ The GitHub Actions workflow runs linting, type checking, tests, and package buil
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](https://github.com/ailake-io/llmrivotril/blob/main/LICENSE).

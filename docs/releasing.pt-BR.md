@@ -15,11 +15,19 @@
 
 ## Release no PyPI
 
-O repositório contém `.github/workflows/release.yml`. Configure o ambiente
-`pypi` do GitHub como um PyPI Trusted Publisher para o repositório e workflow
-exatos, depois publique um GitHub Release a partir da tag correspondente. O
-workflow constrói tanto o wheel quanto a source distribution e os publica sem
-um token de API de longa duração.
+O repositório contém `.github/workflows/release.yml`, que constrói o wheel e a
+source distribution e publica com `twine` usando um token de API do PyPI.
+Setup único:
+
+1. Gere um token de API no PyPI (abrangente na conta pro primeiro upload;
+   restrinja ao projeto `llmrivotril` depois que ele existir lá).
+2. Adicione como secret do repositório com o nome `PYPI_API_TOKEN`
+   (Settings → Secrets and variables → Actions).
+
+Depois disso, publicar um GitHub Release a partir de uma tag de versão
+dispara o workflow automaticamente. `twine upload --skip-existing` torna uma
+nova execução do workflow (por exemplo, após uma falha transitória) segura --
+não dá erro em arquivos que já foram enviados para aquela versão.
 
 Não reutilize uma versão que já foi enviada: os arquivos de release do PyPI
 são imutáveis. Atualize o changelog e a versão do pacote antes de criar uma

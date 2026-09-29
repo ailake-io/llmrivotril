@@ -254,7 +254,10 @@ encontrados bloqueios críticos de implementação no código.
 1. Confirmar a disponibilidade do nome `llmrivotril` no PyPI.
 2. Substituir o autor genérico dos metadados por uma identidade de release real.
 3. Fazer upload no TestPyPI e validar a instalação por um consumidor externo.
-4. Configurar o Trusted Publisher do GitHub Actions no ambiente `pypi`.
+4. Gerar um token de API no PyPI e cadastrar como secret `PYPI_API_TOKEN` no
+   repositório GitHub (o workflow trocou de Trusted Publisher/OIDC para
+   token de API via `twine`, replicando o padrão já usado e comprovado no
+   projeto ai-lakehouse -- ver `docs/releasing.md`).
 5. Criar a tag e o GitHub Release correspondentes à versão `0.1.0`.
 6. Executar validações controladas com contas reais de Azure OpenAI e AWS
    Bedrock.
