@@ -1,5 +1,7 @@
 # Observability: Metrics, Dashboard, Benchmark & Cost Tracking
 
+*[Português](observability.pt-BR.md)*
+
 [← Back to README](../README.md)
 
 ## Automatic Metrics Persistence

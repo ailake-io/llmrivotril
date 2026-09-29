@@ -90,6 +90,17 @@ def test_load_env_config_reads_bools(value, expected):
     assert config["enable_lazy_clients"] is expected
 
 
+def test_load_env_config_reads_memory_token_saving_keys():
+    os.environ["RIVOTRIL_MEMORY_MAX_TOKENS"] = "500"
+    os.environ["RIVOTRIL_MEMORY_SUMMARIZE_TRIGGER_TURNS"] = "20"
+    os.environ["RIVOTRIL_MEMORY_SUMMARIZE"] = "true"
+
+    config = load_env_config()
+    assert config["memory_max_tokens"] == 500
+    assert config["memory_summarize_trigger_turns"] == 20
+    assert config["memory_summarize"] is True
+
+
 def test_load_file_config_returns_empty_dict_when_no_file(temp_config):
     assert load_file_config() == {}
 

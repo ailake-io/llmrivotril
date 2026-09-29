@@ -1,5 +1,7 @@
 # LLM-Rivotril
 
+*[Português](README.pt-BR.md)*
+
 A lightweight Python framework to reduce LLM hallucinations, enforce guardrails, manage stateful memory, and monitor performance through a local web dashboard.
 
 ## Features
@@ -10,6 +12,7 @@ A lightweight Python framework to reduce LLM hallucinations, enforce guardrails,
 - **Stateful Memory** — Sliding-window conversation store to prevent context drift, with optional automatic disk persistence.
 - **Anti-Hallucination Verifier** — Pluggable grounding checks, including keyword overlap, citation markers, and embedding-based faithfulness.
 - **Resilience** — Built-in rate limiting, retry with backoff, and circuit breaker for LLM calls.
+- **Token-Saving Controls** *(optional)* — Semantic (similarity-based) response cache, token-budget-aware memory trimming, and LLM-summarized history compaction.
 - **Telemetry & Dashboard** — Built-in FastAPI dashboard with live request logs, token usage, latency, and success rate; optional per-token auth.
 - **Benchmark / Red-Team Evaluator** — Labeled suite to measure guardrail and verifier accuracy without API costs.
 - **CLI** — Launch the dashboard with a single command.
@@ -17,6 +20,7 @@ A lightweight Python framework to reduce LLM hallucinations, enforce guardrails,
 - **Async API** — `run_async()` for non-blocking execution.
 - **Multi-Provider** — OpenAI-compatible servers (Ollama, vLLM, ...), plus native Anthropic, Cohere, Gemini, Azure OpenAI, and AWS Bedrock adapters.
 - **Vector-Store Retrievers** *(optional)* — pgvector, Qdrant, Weaviate, and Pinecone adapters for RAG beyond in-memory scale.
+- **Framework Integrations** *(optional)* — Drop-in adapters for CrewAI, AG2/AutoGen, LangChain/LangGraph, and Google ADK, so guardrails/PII/RAG/observability apply inside those frameworks too.
 
 ## Installation
 
@@ -38,7 +42,7 @@ cd llmrivotril
 pip install -e ".[dev,semantic]"
 ```
 
-This installs test, lint, type-check, and packaging tools (`pytest`, `ruff`, `mypy`, `build`, `twine`) plus every optional runtime dependency (all providers, RAG loaders, vector stores, Redis).
+This installs test, lint, type-check, and packaging tools (`pytest`, `ruff`, `mypy`, `build`, `twine`) plus every optional runtime dependency (all providers, RAG loaders, vector stores, Redis, framework integrations).
 
 ## Quick Start
 
@@ -70,8 +74,9 @@ print(response)
 - [Providers](docs/providers.md) — OpenAI-compatible servers, Anthropic, Cohere, Gemini, Azure OpenAI, AWS Bedrock.
 - [Guardrails & Safety](docs/guardrails-and-safety.md) — Semantic guardrails, moderation, PII redaction, token budget.
 - [RAG](docs/rag.md) — Local pipeline, vector-store retrievers (pgvector/Qdrant/Weaviate/Pinecone), grounding verification.
+- [Framework Integrations](docs/integrations.md) — CrewAI, AG2/AutoGen, LangChain/LangGraph, Google ADK adapters, and multi-agent setup notes.
 - [Async, Streaming & Function Calling](docs/streaming-and-tools.md)
-- [Reliability](docs/reliability.md) — Resilience, response caching, schema-repair fallback.
+- [Reliability](docs/reliability.md) — Resilience, response caching (including semantic cache), memory token budget & summarization, schema-repair fallback.
 - [Observability](docs/observability.md) — Metrics persistence, local dashboard, benchmark, cost tracking.
 - [Configuration](docs/configuration.md) — Config files, environment variables, plugins, project scaffolding.
 - [Releasing](docs/releasing.md) — Build validation, TestPyPI, and the PyPI release workflow.
@@ -111,6 +116,7 @@ llmrivotril/
 │   ├── verifier.py           # Hallucination / grounding checks
 │   ├── providers.py          # OpenAI / Azure / Anthropic / Cohere / Gemini / Bedrock adapters
 │   ├── rag/                  # RAG loaders, chunkers, retrievers, vector stores, and pipeline
+│   ├── integrations/         # CrewAI / AG2 / LangChain / Google ADK adapters
 │   ├── resilience.py         # Rate limiter, retry, and circuit breaker
 │   ├── semantic.py           # Optional embedding-based guardrails/verifiers
 │   ├── metrics.py            # Telemetry collector

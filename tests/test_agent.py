@@ -623,3 +623,65 @@ def test_agent_does_not_cache_raw_pii():
     assert cache._store, "expected the response to have been cached"
     for value, _expires_at in cache._store.values():
         assert "john@example.com" not in value.text
+
+
+def test_memory_max_tokens_is_wired_into_default_memory_store():
+    agent, _ = _make_agent(memory_max_tokens=50)
+
+    assert agent.memory.max_tokens == 50
+    assert agent.memory.count_tokens == agent._count_tokens
+
+
+def test_memory_max_tokens_none_by_default():
+    agent, _ = _make_agent()
+
+    assert agent.memory.max_tokens is None
+
+
+def test_explicit_memory_instance_is_not_reconfigured():
+    custom_memory = MemoryStore(retention_window=3)
+    agent, _ = _make_agent(memory=custom_memory, memory_max_tokens=50)
+
+    # memory= wins outright; memory_max_tokens is ignored rather than
+    # silently mutating an object the caller constructed themselves.
+    assert agent.memory is custom_memory
+    assert agent.memory.max_tokens is None
+
+
+def test_memory_summarize_false_by_default_no_summarizer_wired():
+    agent, _ = _make_agent()
+
+    assert agent.memory.summarize is None
+
+
+def test_memory_summarize_true_wires_agent_summarizer():
+    agent, provider = _make_agent(memory_summarize=True, memory_summarize_trigger_turns=2)
+    provider._complete_mock.return_value = ProviderResponse(content="a short summary")
+
+    assert agent.memory.summarize == agent._summarize_history
+    assert agent.memory.summarize_trigger_turns == 2
+
+    result = agent.memory.summarize("user: old turn")
+    assert result == "a short summary"
+
+
+def test_agent_semantic_cache_hits_on_similar_prompt():
+    from llmrivotril.semantic_cache import SemanticCache
+
+    cache = SemanticCache(similarity_threshold=0.9)
+    embeddings = {
+        "what is 2+2?": [1.0, 0.0],
+        "what's 2 plus 2?": [0.99, 0.01],
+    }
+    cache._embed_fn = lambda text: embeddings.get(text, [0.0, 0.0])
+
+    agent, provider = _make_agent(cache=cache)
+    provider._complete_mock.return_value = ProviderResponse(content="four")
+
+    result1 = agent.run("what is 2+2?")
+    agent.memory.clear()
+    result2 = agent.run("what's 2 plus 2?")
+
+    assert result1 == "four"
+    assert result2 == "four"
+    assert provider._complete_mock.call_count == 1

@@ -81,6 +81,9 @@ class RivotrilAgent:
         plugins: list[Any] | str | None = None,
         metrics_path: Any = _UNSET,
         memory_path: Any = _UNSET,
+        memory_max_tokens: Any = _UNSET,
+        memory_summarize: Any = _UNSET,
+        memory_summarize_trigger_turns: Any = _UNSET,
         cache: Any = _UNSET,
         cache_key_fn: Any = _UNSET,
         track_costs: Any = _UNSET,
@@ -121,12 +124,16 @@ class RivotrilAgent:
         self.guardrails = (guardrails or []) + plugin_guardrails
 
         resolved_memory_path = _resolve(memory_path, "memory_path", None)
-        if memory is not None:
-            self.memory = memory
-        elif resolved_memory_path:
-            self.memory = MemoryStore(auto_save_path=resolved_memory_path)
-        else:
-            self.memory = MemoryStore()
+        resolved_memory_max_tokens = _resolve(memory_max_tokens, "memory_max_tokens", None)
+        resolved_memory_summarize = _resolve(memory_summarize, "memory_summarize", False)
+        resolved_memory_summarize_trigger_turns = _resolve(
+            memory_summarize_trigger_turns, "memory_summarize_trigger_turns", 20
+        )
+        self._memory_arg = memory
+        self._resolved_memory_path = resolved_memory_path
+        self._resolved_memory_max_tokens = resolved_memory_max_tokens
+        self._resolved_memory_summarize = resolved_memory_summarize
+        self._resolved_memory_summarize_trigger_turns = resolved_memory_summarize_trigger_turns
 
         resolved_metrics_path = _resolve(metrics_path, "metrics_path", None)
         if metrics is not None:
@@ -191,6 +198,25 @@ class RivotrilAgent:
             exceptions=retry_exceptions,
         )
 
+        # Built after self.tokenizer/self.provider so the default MemoryStore
+        # can be wired with this agent's own token counter and (only if
+        # memory_summarize=True was explicitly requested) its own summarizer.
+        if self._memory_arg is not None:
+            self.memory = self._memory_arg
+        else:
+            memory_kwargs: dict[str, Any] = {
+                "max_tokens": self._resolved_memory_max_tokens,
+                "count_tokens": self._count_tokens,
+            }
+            if self._resolved_memory_path:
+                memory_kwargs["auto_save_path"] = self._resolved_memory_path
+            if self._resolved_memory_summarize:
+                memory_kwargs["summarize"] = self._summarize_history
+                memory_kwargs["summarize_trigger_turns"] = (
+                    self._resolved_memory_summarize_trigger_turns
+                )
+            self.memory = MemoryStore(**memory_kwargs)
+
     def _build_messages(self, prompt: str, context_sources: ContextSources = None) -> list[Any]:
         messages: list[Any] = []
         if self.system_prompt:
@@ -251,6 +277,31 @@ class RivotrilAgent:
 
     def _count_tokens(self, text: str) -> int:
         return len(self.tokenizer.encode(text))
+
+    def _summarize_history(self, text: str) -> str:
+        """Compact old memory turns into a short summary via a direct provider call.
+
+        Bypasses guardrails/cache/retry/circuit-breaker/rate-limiting -- this
+        is internal housekeeping, not a user-facing turn, and
+        ``MemoryStore._apply_summary`` already treats a raised exception here
+        as "skip this round's summary" rather than a fatal error. Only used
+        when ``memory_summarize=True`` is explicitly passed.
+        """
+        response = self.provider.complete(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Summarize the following conversation concisely, preserving "
+                        "key facts, decisions, and open questions. Reply with the "
+                        "summary only, no preamble."
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        )
+        return response.text
 
     def _redact(self, text: str) -> str:
         if not self.redact_pii:
@@ -483,6 +534,21 @@ class RivotrilAgent:
         )
         return response
 
+    @staticmethod
+    def _last_user_prompt(messages: list[Any]) -> str | None:
+        """Extract the current turn's raw prompt text from a built message list.
+
+        ``_build_messages`` always appends the current prompt as the final
+        ``{"role": "user", ...}`` entry, so this is a cheap, reliable way to
+        recover it without threading an extra parameter through every cache
+        call site -- used only for fuzzy-matching caches (see
+        ``BaseCache.get``); exact-match backends ignore it.
+        """
+        if messages and messages[-1].get("role") == "user":
+            content = messages[-1].get("content")
+            return content if isinstance(content, str) else None
+        return None
+
     def _cache_lookup(
         self,
         messages: list[Any],
@@ -492,7 +558,7 @@ class RivotrilAgent:
         if self.cache is None:
             return None
         key = self._build_cache_key(messages, response_model, tools)
-        return self.cache.get(key)
+        return self.cache.get(key, prompt=self._last_user_prompt(messages))
 
     def _cache_store(
         self,
@@ -504,7 +570,7 @@ class RivotrilAgent:
         if self.cache is None:
             return
         key = self._build_cache_key(messages, response_model, tools)
-        self.cache.set(key, value)
+        self.cache.set(key, value, prompt=self._last_user_prompt(messages))
 
     def _build_cache_key(
         self,
@@ -513,17 +579,14 @@ class RivotrilAgent:
         tools: list[Any] | None,
     ) -> str:
         if self.cache_key_fn is cache_key:
-            return cast(
-                str,
-                cache_key(
-                    messages,
-                    self.model,
-                    response_model,
-                    tools,
-                    self.system_prompt,
-                    provider_name=getattr(self.provider, "name", "base"),
-                    base_url=self.base_url,
-                ),
+            return cache_key(
+                messages,
+                self.model,
+                response_model,
+                tools,
+                self.system_prompt,
+                provider_name=getattr(self.provider, "name", "base"),
+                base_url=self.base_url,
             )
         # Preserve compatibility with existing custom key functions.
         return cast(

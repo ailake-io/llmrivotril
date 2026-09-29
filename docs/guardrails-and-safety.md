@@ -1,5 +1,7 @@
 # Guardrails & Safety
 
+*[Português](guardrails-and-safety.pt-BR.md)*
+
 [← Back to README](../README.md)
 
 The basic `Guardrail` class (keywords, allowed topics, JSON schema

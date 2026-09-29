@@ -1,6 +1,6 @@
 # Configuration, Plugins & Scaffolding
 
-[← Back to README](../README.md)
+[← Back to README](../README.md) · *[Português](configuration.pt-BR.md)*
 
 ## Configuration Files
 

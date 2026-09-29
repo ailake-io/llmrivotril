@@ -1,6 +1,6 @@
 # Releasing
 
-[← Back to README](../README.md)
+[← Back to README](../README.md) · *[Português](releasing.pt-BR.md)*
 
 ## Pre-release checklist
 

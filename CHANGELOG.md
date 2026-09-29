@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Framework-integration adapters for CrewAI (`BaseLLM`), AG2/pyautogen
+  (`ModelClient` protocol, no extra dependency), LangChain/LangGraph
+  (`BaseChatModel`), and Google ADK (`BaseLlm`) under
+  `llmrivotril.integrations`. Each is optional (`llmrivotril[crewai]`,
+  `llmrivotril[langchain]`, `llmrivotril[adk]`, or `llmrivotril[integrations]`
+  for all three) and documented in `docs/integrations.md`, including
+  multi-agent/crew setup notes.
+- Three independent, opt-in token-saving controls, all off by default and
+  documented in `docs/reliability.md`:
+  - `SemanticCache` (`llmrivotril.semantic_cache`) -- wraps any `BaseCache`
+    backend with an embedding-similarity lookup, so paraphrased repeat
+    prompts hit the cache too, not just byte-identical ones. Requires
+    `llmrivotril[semantic]`.
+  - `MemoryStore(max_tokens=..., count_tokens=...)` -- trims the oldest
+    memory turns by actual token count, layered on top of the existing
+    turn-count `retention_window` cap. `RivotrilAgent(memory_max_tokens=...)`
+    wires this in automatically for its default memory store.
+  - `MemoryStore(summarize=..., summarize_trigger_turns=...)` -- compacts
+    turns that would otherwise be dropped into a short summary instead.
+    `RivotrilAgent(memory_summarize=True, memory_summarize_trigger_turns=...)`
+    wires in a summarizer backed by the agent's own provider.
+  - `BaseCache.get`/`set` gained an optional `prompt=` parameter (ignored by
+    the existing exact-match backends) so a fuzzy-matching cache can see the
+    raw prompt text; this is a backward-compatible addition, not a breaking
+    change to the interface.
+
 ## [0.1.0] - 2026-09-28
 
 ### Added
