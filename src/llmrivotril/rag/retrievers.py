@@ -14,10 +14,27 @@ from .document import Document, MetadataFilter, matches_metadata
 
 logger = logging.getLogger("llmrivotril")
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - numpy ships with sentence-transformers/torch
-    np = None  # type: ignore[assignment]
+
+def _import_numpy() -> Any:
+    """Import numpy if available, else None.
+
+    A plain try/except around ``import numpy as np`` makes mypy's view of
+    ``np``'s type depend on whether numpy is actually installed in whatever
+    environment mypy runs in (a real module vs. the `Any` stand-in from this
+    project's `ignore_missing_imports` override for numpy) -- so whichever
+    `# type: ignore` code fixes one environment breaks as "unused" in the
+    other. Wrapping the import in a function with a declared `-> Any` return
+    sidesteps that: the caller's assignment is typed `Any` unconditionally.
+    """
+    try:
+        import numpy
+
+        return numpy
+    except ImportError:  # pragma: no cover - numpy ships with sentence-transformers/torch
+        return None
+
+
+np = _import_numpy()
 
 
 def _validate_top_k(top_k: int) -> int:
