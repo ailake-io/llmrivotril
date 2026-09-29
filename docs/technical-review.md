@@ -229,3 +229,46 @@ de qualidade antes de iniciar a seguinte.
 - [ ] Confirmar nome disponível no PyPI e substituir o autor genérico por
   identidade de release real.
 - [ ] Executar o primeiro upload no TestPyPI e validar instalação externa.
+
+## Status validado em 29/09/2026
+
+O estado atual é de release candidate técnico para a versão `0.1.0`. Não foram
+encontrados bloqueios críticos de implementação no código.
+
+### Gates executados
+
+- [x] `pytest -q`: 326 testes passaram e 3 foram pulados por serem opcionais ou
+  lentos.
+- [x] `ruff check src tests examples scripts` passou.
+- [x] `ruff format --check src tests examples scripts` passou.
+- [x] `mypy src` passou sem erros.
+- [x] Wheel e sdist foram construídos com sucesso.
+- [x] `twine check` passou para os dois artefatos.
+- [x] Wheel instalado em ambiente virtual limpo, com import do pacote e
+  `llmrivotril --help` funcionando.
+- [x] Árvore de trabalho sem alterações pendentes antes desta atualização
+  documental.
+
+### Pendências para o lançamento
+
+1. Confirmar a disponibilidade do nome `llmrivotril` no PyPI.
+2. Substituir o autor genérico dos metadados por uma identidade de release real.
+3. Fazer upload no TestPyPI e validar a instalação por um consumidor externo.
+4. Configurar o Trusted Publisher do GitHub Actions no ambiente `pypi`.
+5. Criar a tag e o GitHub Release correspondentes à versão `0.1.0`.
+6. Executar validações controladas com contas reais de Azure OpenAI e AWS
+   Bedrock.
+7. Executar validações operacionais com PostgreSQL/pgvector e Pinecone.
+8. Automatizar no CI, quando viável, os contratos dos vector stores; Qdrant e
+   Weaviate já foram exercitados contra SDKs/serviços reais, mas não fazem parte
+   da rotina do CI.
+9. Corrigir ou documentar a origem do warning de `google.generativeai` emitido
+   pelo `instructor`; o adapter Gemini do projeto já usa `google-genai`.
+10. Avaliar lockfile ou versões fixadas para as ferramentas e SDKs do CI, para
+    melhorar a reprodutibilidade.
+11. Decidir se a classificação PyPI deve continuar como Alpha ou avançar para
+    Beta/Production.
+
+As limitações conhecidas continuam sendo: os adapters Azure/Bedrock não foram
+validados com credenciais reais, PostgreSQL/Pinecone ainda não foram testados
+contra serviços reais, e `tools=` não está disponível no streaming do Bedrock.
