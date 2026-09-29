@@ -151,6 +151,14 @@ default. Run them with:
 pytest -v --run-slow
 ```
 
+For a reproducible provider/integration environment, apply the versions validated
+locally before installing the desired extras:
+
+```bash
+python -m pip install -c .github/constraints-runtime.txt \
+  -e ".[integrations,providers,semantic,qdrant]"
+```
+
 ## CI/CD
 
 ![CI](https://github.com/ailake-io/llmrivotril/workflows/CI/badge.svg)
