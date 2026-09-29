@@ -68,8 +68,9 @@ correspondente são repassados para o provider ver, mas não podem ser
 auto-executados pelo `RivotrilAgent`. `response_model=` (o parâmetro de saída
 estruturada do CrewAI) é passado direto para `agent.run(response_model=...)`.
 
-Não implementado: streaming, `stop=` (`supports_stop_words()` retorna `False`
-honestamente em vez de ignorá-lo silenciosamente).
+Streaming está disponível pelo protocolo `stream_events()` do CrewAI quando o
+LLM é configurado com `stream=True`. Sequências `stop` continuam sem suporte
+(`supports_stop_words()` retorna `False` em vez de ignorá-las silenciosamente).
 
 ## AG2 / pyautogen
 
@@ -113,7 +114,9 @@ que aceite um chat model. Tanto o síncrono (`_generate`) quanto o assíncrono
 (`_agenerate`, chamando `agent.run_async` diretamente em vez do wrapper de
 thread-pool padrão do LangChain) estão implementados.
 
-Não implementado: streaming e `bind_tools()` -- só `invoke`/`ainvoke` puro.
+Streaming está disponível por `stream()`/`astream()`, e `bind_tools()` repassa
+schemas e ferramentas LangChain compatíveis para o `RivotrilAgent`.
+`tool_choice` é limitado a `None` ou `"auto"`.
 
 ## Google ADK
 
@@ -126,9 +129,10 @@ planner = RivotrilAgent(model="gemini-2.0-flash", api_key="...")
 agent = LlmAgent(name="planner", model=RivotrilLlm(agent=planner), instruction="...")
 ```
 
-Não implementado: `stream=True` (uma única resposta não-streaming é retornada
-de qualquer forma) e partes multimodais -- só a primeira parte de texto de cada
-content é lida; partes de imagem/áudio/function-response são ignoradas.
+`stream=True` retorna uma resposta ADK por chunk do stream do agente. Partes de
+texto, imagem, áudio e arquivo são convertidas para o formato multimodal
+normalizado do LLM-Rivotril. Partes de resposta de função ainda dependem do
+orquestrador ADK e não são executadas por este adapter.
 
 ## Setups multi-agente (crews, group chats, grafos, árvores multi-agente do ADK)
 

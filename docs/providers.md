@@ -41,6 +41,24 @@ The Gemini extra uses the maintained `google-genai` SDK and imports it as
 
 Supported providers: `openai` (default), `azure_openai`, `anthropic`, `cohere`, `gemini`, `bedrock`.
 
+## Multimodal prompts
+
+`RivotrilAgent` accepts OpenAI-style content parts. Text is used for guardrails,
+PII redaction, token budgets, and memory; providers that support rich content
+receive the image/audio/document payload unchanged:
+
+```python
+response = agent.run([
+    {"type": "text", "text": "Describe this image."},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+])
+```
+
+OpenAI/Azure, Gemini and Bedrock support text plus image/audio/document parts;
+Anthropic supports text, images and documents. Binary images/documents for
+Anthropic and Bedrock must use data URLs; remote URLs are rejected instead of
+being fetched implicitly. Cohere remains text-only.
+
 The plain OpenAI-compatible path (`base_url=`) only works for endpoints that
 mirror the plain OpenAI REST API -- Ollama, vLLM, LM Studio, OpenRouter,
 Together.ai, etc. Azure OpenAI and AWS Bedrock have different auth/request
@@ -96,9 +114,9 @@ resolved the normal boto3 way (environment variables,
 for Bedrock. Uses the Bedrock Runtime **Converse API**, which gives one
 request/response shape across model families (Anthropic, Meta, Amazon,
 Mistral, Cohere) on Bedrock. `tools=` is translated to Converse's
-`toolConfig` shape for `agent.run()`/`run_async()` -- not for
-`run_stream()`, where Converse's streaming tool-call deltas would need
-their own accumulation logic. Since boto3 has no official async client,
+`toolConfig` shape for `agent.run()`/`run_async()` and `run_stream()`;
+streaming tool-use deltas are accumulated before the agent executes the tool.
+Since boto3 has no official async client,
 `run_async()` runs the synchronous call in a worker thread rather than
 being natively non-blocking (streaming bridges it through a producer
 thread instead, for genuine incremental delivery).

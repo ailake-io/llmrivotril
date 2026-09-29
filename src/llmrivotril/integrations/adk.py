@@ -8,9 +8,9 @@ call via ``llm_request.contents``; this adapter flattens it into one prompt
 via ``flatten_messages`` rather than relying on ``RivotrilAgent``'s own
 ``memory=`` store.
 
-Streaming (``stream=True``) and multimodal parts (images/audio/function
-responses) are not implemented -- only the first text part of each content
-is read, and a single non-streaming ``LlmResponse`` is yielded.
+Streaming uses ``RivotrilAgent.run_stream_async()`` when ``stream=True``.
+Text, image, audio and file parts are translated to the normalized content
+format accepted by ``RivotrilAgent``.
 
 Requires: pip install "llmrivotril[adk]"
 """
@@ -33,13 +33,36 @@ from ._common import flatten_messages
 
 
 def _contents_to_dicts(contents: list[Any]) -> list[dict[str, str]]:
-    return [
-        {
-            "role": content.role or "user",
-            "content": "".join(part.text or "" for part in (content.parts or [])),
-        }
-        for content in contents
-    ]
+    result: list[dict[str, Any]] = []
+    for content in contents:
+        parts: list[dict[str, Any]] = []
+        for part in content.parts or []:
+            if getattr(part, "text", None):
+                parts.append({"type": "text", "text": part.text})
+                continue
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data is not None and getattr(inline_data, "data", None) is not None:
+                import base64
+
+                encoded = base64.b64encode(inline_data.data).decode("ascii")
+                mime = getattr(inline_data, "mime_type", "application/octet-stream")
+                if mime.startswith("image/"):
+                    parts.append(
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
+                    )
+                elif mime.startswith("audio/"):
+                    parts.append(
+                        {
+                            "type": "input_audio",
+                            "input_audio": {"data": encoded, "format": mime.split("/", 1)[1]},
+                        }
+                    )
+                continue
+            file_data = getattr(part, "file_data", None)
+            if file_data is not None and getattr(file_data, "file_uri", None):
+                parts.append({"type": "file", "file": {"uri": file_data.file_uri}})
+        result.append({"role": content.role or "user", "content": parts})
+    return result
 
 
 class RivotrilLlm(BaseLlm):
@@ -60,5 +83,12 @@ class RivotrilLlm(BaseLlm):
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
         prompt = flatten_messages(_contents_to_dicts(llm_request.contents))
+        if stream:
+            async for text in self.agent.run_stream_async(prompt):
+                yield LlmResponse(
+                    content=types.Content(role="model", parts=[types.Part(text=text)])
+                )
+            return
+
         text = await self.agent.run_async(prompt)
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]))

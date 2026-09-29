@@ -41,6 +41,24 @@ O extra do Gemini usa o SDK mantido `google-genai` e o importa como
 
 Providers suportados: `openai` (padrão), `azure_openai`, `anthropic`, `cohere`, `gemini`, `bedrock`.
 
+## Prompts multimodais
+
+O `RivotrilAgent` aceita partes de conteúdo no formato da OpenAI. O texto é
+usado por guardrails, redação de PII, orçamento de tokens e memória; providers
+que suportam conteúdo rico recebem o payload de imagem/áudio/documento:
+
+```python
+response = agent.run([
+    {"type": "text", "text": "Descreva esta imagem."},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+])
+```
+
+OpenAI/Azure, Gemini e Bedrock suportam texto e partes de imagem/áudio/documento;
+Anthropic suporta texto, imagens e documentos. Imagens/documentos binários no
+Anthropic e no Bedrock precisam usar data URLs; URLs remotas são rejeitadas em
+vez de serem baixadas implicitamente. Cohere continua somente texto.
+
 O caminho simples compatível com OpenAI (`base_url=`) só funciona para
 endpoints que espelham a REST API pura da OpenAI -- Ollama, vLLM, LM Studio,
 OpenRouter, Together.ai, etc. Azure OpenAI e AWS Bedrock têm formatos de
@@ -97,9 +115,9 @@ resolvidas do jeito normal do boto3 (variáveis de ambiente,
 para o Bedrock. Usa a **Converse API** do Bedrock Runtime, que dá um único
 formato de request/response entre as famílias de modelo (Anthropic, Meta,
 Amazon, Mistral, Cohere) no Bedrock. `tools=` é traduzido para o formato
-`toolConfig` da Converse em `agent.run()`/`run_async()` -- mas não em
-`run_stream()`, onde os deltas de tool-call em streaming da Converse
-precisariam da própria lógica de acumulação. Como o boto3 não tem cliente
+`toolConfig` da Converse em `agent.run()`/`run_async()` e `run_stream()`;
+os deltas de tool-use são acumulados antes de o agente executar a tool.
+Como o boto3 não tem cliente
 assíncrono oficial, `run_async()` roda a chamada síncrona numa worker
 thread em vez de ser nativamente não-bloqueante (o streaming faz a ponte
 através de uma producer thread, para entrega incremental de verdade).

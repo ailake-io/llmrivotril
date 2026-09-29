@@ -130,6 +130,56 @@ class TestLangChain:
 
         assert RivotrilChatModel(agent=_fake_agent())._llm_type == "rivotril"
 
+    def test_stream_delegates_chunks_to_agent(self) -> None:
+        pytest.importorskip("langchain_core")
+        from langchain_core.messages import HumanMessage
+
+        from llmrivotril.integrations.langchain import RivotrilChatModel
+
+        agent = _fake_agent()
+        agent.run_stream.return_value = iter(["hello", " world"])
+        model = RivotrilChatModel(agent=agent)
+
+        chunks = list(model._stream([HumanMessage(content="hi")]))
+
+        assert [chunk.message.content for chunk in chunks] == ["hello", " world"]
+        assert "Human: hi" in agent.run_stream.call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_astream_delegates_chunks_to_agent(self) -> None:
+        pytest.importorskip("langchain_core")
+        from langchain_core.messages import HumanMessage
+
+        from llmrivotril.integrations.langchain import RivotrilChatModel
+
+        agent = _fake_agent()
+
+        async def fake_stream(prompt: str):
+            yield "hello"
+            yield " world"
+
+        agent.run_stream_async = fake_stream
+        model = RivotrilChatModel(agent=agent)
+
+        chunks = [chunk async for chunk in model._astream([HumanMessage(content="hi")])]
+
+        assert [chunk.message.content for chunk in chunks] == ["hello", " world"]
+
+    def test_bind_tools_forwards_tools_to_agent(self) -> None:
+        pytest.importorskip("langchain_core")
+        from langchain_core.messages import HumanMessage
+
+        from llmrivotril.integrations.langchain import RivotrilChatModel
+
+        def lookup(city: str) -> str:
+            return city
+
+        agent = _fake_agent()
+        model = RivotrilChatModel(agent=agent).bind_tools([lookup])
+        model._generate([HumanMessage(content="weather?")])
+
+        assert agent.run.call_args.kwargs["tools"] == [lookup]
+
 
 class TestADK:
     @pytest.mark.asyncio
@@ -158,3 +208,27 @@ class TestADK:
         assert len(responses) == 1
         assert responses[0].content.parts[0].text == "hello from rivotril"
         assert "User: hi" in fake_run_async.seen_prompt  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_generate_content_async_streams_when_requested(self) -> None:
+        pytest.importorskip("google.adk")
+        from google.genai import types
+
+        from llmrivotril.integrations.adk import RivotrilLlm
+
+        agent = _fake_agent()
+
+        async def fake_stream(prompt: str):
+            yield "hello"
+            yield " world"
+
+        agent.run_stream_async = fake_stream
+        llm = RivotrilLlm(agent=agent)
+        llm_request = MagicMock()
+        llm_request.contents = [types.Content(role="user", parts=[types.Part(text="hi")])]
+
+        responses = [
+            response async for response in llm.generate_content_async(llm_request, stream=True)
+        ]
+
+        assert [response.content.parts[0].text for response in responses] == ["hello", " world"]

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from .cache import BaseCache, DiskCache, cache_key
 from .config import load_config
+from .content import PromptContent, content_to_text, redact_content
 from .exceptions import (
     GuardrailViolationError,
     HallucinationDetectedError,
@@ -217,7 +218,9 @@ class RivotrilAgent:
                 )
             self.memory = MemoryStore(**memory_kwargs)
 
-    def _build_messages(self, prompt: str, context_sources: ContextSources = None) -> list[Any]:
+    def _build_messages(
+        self, prompt: PromptContent, context_sources: ContextSources = None
+    ) -> list[Any]:
         messages: list[Any] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
@@ -303,10 +306,10 @@ class RivotrilAgent:
         )
         return response.text
 
-    def _redact(self, text: str) -> str:
+    def _redact(self, text: PromptContent) -> PromptContent:
         if not self.redact_pii:
             return text
-        return self.pii_redactor.redact(text)
+        return redact_content(text, self.pii_redactor.redact)
 
     def _redact_response(self, response: Any, response_model: type[BaseModel] | None) -> Any:
         """Redact PII in-place on a ``ProviderResponse`` before it is cached or returned.
@@ -459,9 +462,11 @@ class RivotrilAgent:
 
         return response
 
-    def _check_token_budget(self, prompt: str, context_sources: ContextSources = None) -> int:
+    def _check_token_budget(
+        self, prompt: PromptContent, context_sources: ContextSources = None
+    ) -> int:
         """Return token count for the prompt; raise if budget is exceeded."""
-        prompt_tokens = self._count_tokens(prompt)
+        prompt_tokens = self._count_tokens(content_to_text(prompt))
         if self.system_prompt:
             prompt_tokens += self._count_tokens(self.system_prompt)
         for message in self.memory.get_context():
@@ -705,7 +710,7 @@ class RivotrilAgent:
 
     def run(
         self,
-        prompt: str,
+        prompt: PromptContent,
         response_model: type[BaseModel] | None = None,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
@@ -724,7 +729,7 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run")
         try:
-            self._run_preflight(prompt)
+            self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
             if response_model is not None and self.schema_repair_attempts > 0:
                 response = self._execute_structured_with_repair(
@@ -745,11 +750,15 @@ class RivotrilAgent:
             else:
                 response_text = response.text
 
-            response_text = self._redact(response_text)
+            response_text = (
+                self.pii_redactor.redact(response_text) if self.redact_pii else response_text
+            )
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
             cost_usd = self._estimate_execution_cost(response, messages, response_text)
-            self._run_post_generation(prompt, response_text, response, context_sources)
+            self._run_post_generation(
+                content_to_text(prompt), response_text, response, context_sources
+            )
             logger.info("Agent run completed successfully")
             if response_model is not None:
                 return response.structured
@@ -779,7 +788,7 @@ class RivotrilAgent:
         finally:
             latency = time.time() - start_time
             self.metrics.log_execution(
-                prompt=prompt,
+                prompt=content_to_text(prompt),
                 response=response_text if response_text else "N/A",
                 tokens=tokens,
                 latency=latency,
@@ -791,7 +800,7 @@ class RivotrilAgent:
 
     async def run_async(
         self,
-        prompt: str,
+        prompt: PromptContent,
         response_model: type[BaseModel] | None = None,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
@@ -810,7 +819,7 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_async")
         try:
-            self._run_preflight(prompt)
+            self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
             if response_model is not None and self.schema_repair_attempts > 0:
                 response = await self._execute_structured_with_repair_async(
@@ -831,11 +840,15 @@ class RivotrilAgent:
             else:
                 response_text = response.text
 
-            response_text = self._redact(response_text)
+            response_text = (
+                self.pii_redactor.redact(response_text) if self.redact_pii else response_text
+            )
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
             cost_usd = self._estimate_execution_cost(response, messages, response_text)
-            self._run_post_generation(prompt, response_text, response, context_sources)
+            self._run_post_generation(
+                content_to_text(prompt), response_text, response, context_sources
+            )
             logger.info("Agent async run completed successfully")
             if response_model is not None:
                 return response.structured
@@ -865,7 +878,7 @@ class RivotrilAgent:
         finally:
             latency = time.time() - start_time
             self.metrics.log_execution(
-                prompt=prompt,
+                prompt=content_to_text(prompt),
                 response=response_text if response_text else "N/A",
                 tokens=tokens,
                 latency=latency,
@@ -885,6 +898,13 @@ class RivotrilAgent:
         """
         if isinstance(chunk, str):
             return chunk
+        if isinstance(chunk, ProviderResponse):
+            for index, tool_call in enumerate(chunk.tool_calls or []):
+                entry = tool_call_deltas.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                entry["id"] = tool_call.get("id", "")
+                entry["name"] = tool_call.get("name", "")
+                entry["arguments"] = json.dumps(tool_call.get("arguments", {}))
+            return chunk.content or ""
         if not (chunk.choices and chunk.choices[0].delta):
             return ""
         delta = chunk.choices[0].delta
@@ -972,7 +992,7 @@ class RivotrilAgent:
 
     def run_stream(
         self,
-        prompt: str,
+        prompt: PromptContent,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
         response_model: type[BaseModel] | None = None,
@@ -1017,7 +1037,7 @@ class RivotrilAgent:
 
     def _run_stream_text(
         self,
-        prompt: str,
+        prompt: PromptContent,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
     ) -> Iterator[str]:
@@ -1032,17 +1052,21 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_stream")
         try:
-            self._run_preflight(prompt)
+            self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             for chunk in self._stream_chunks(messages, tool_registry):
                 response_text += chunk
                 yield chunk
 
-            response_text = self._redact(response_text)
+            response_text = (
+                self.pii_redactor.redact(response_text) if self.redact_pii else response_text
+            )
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(prompt, response_text, response_text, context_sources)
+            self._run_post_generation(
+                content_to_text(prompt), response_text, response_text, context_sources
+            )
             logger.info("Agent stream completed successfully")
 
         except GuardrailViolationError as exc:
@@ -1062,7 +1086,7 @@ class RivotrilAgent:
         finally:
             latency = time.time() - start_time
             self.metrics.log_execution(
-                prompt=prompt,
+                prompt=content_to_text(prompt),
                 response=response_text if response_text else "N/A",
                 tokens=tokens,
                 latency=latency,
@@ -1073,7 +1097,7 @@ class RivotrilAgent:
 
     def run_stream_async(
         self,
-        prompt: str,
+        prompt: PromptContent,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
         response_model: type[BaseModel] | None = None,
@@ -1093,7 +1117,7 @@ class RivotrilAgent:
 
     async def _run_stream_text_async(
         self,
-        prompt: str,
+        prompt: PromptContent,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
     ) -> AsyncIterator[str]:
@@ -1108,17 +1132,21 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_stream_async")
         try:
-            self._run_preflight(prompt)
+            self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             async for chunk in self._astream_chunks(messages, tool_registry):
                 response_text += chunk
                 yield chunk
 
-            response_text = self._redact(response_text)
+            response_text = (
+                self.pii_redactor.redact(response_text) if self.redact_pii else response_text
+            )
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(prompt, response_text, response_text, context_sources)
+            self._run_post_generation(
+                content_to_text(prompt), response_text, response_text, context_sources
+            )
             logger.info("Agent async stream completed successfully")
 
         except GuardrailViolationError as exc:
@@ -1138,7 +1166,7 @@ class RivotrilAgent:
         finally:
             latency = time.time() - start_time
             self.metrics.log_execution(
-                prompt=prompt,
+                prompt=content_to_text(prompt),
                 response=response_text if response_text else "N/A",
                 tokens=tokens,
                 latency=latency,
@@ -1149,7 +1177,7 @@ class RivotrilAgent:
 
     def _run_stream_structured(
         self,
-        prompt: str,
+        prompt: PromptContent,
         response_model: type[BaseModel],
         context_sources: ContextSources,
         result_holder: "StreamedStructuredResult",
@@ -1164,20 +1192,24 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_stream (structured)")
         try:
-            self._run_preflight(prompt)
+            self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             for chunk in self._stream_chunks(messages, None):
                 response_text += chunk
                 yield chunk
 
-            structured_json = self._redact(response_text)
+            structured_json = (
+                self.pii_redactor.redact(response_text) if self.redact_pii else response_text
+            )
             structured = response_model.model_validate_json(structured_json)
             response_text = structured.model_dump_json()
 
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(prompt, response_text, structured, context_sources)
+            self._run_post_generation(
+                content_to_text(prompt), response_text, structured, context_sources
+            )
             result_holder.result = structured
             logger.info("Agent structured stream completed successfully")
 
@@ -1205,7 +1237,7 @@ class RivotrilAgent:
         finally:
             latency = time.time() - start_time
             self.metrics.log_execution(
-                prompt=prompt,
+                prompt=content_to_text(prompt),
                 response=response_text if response_text else "N/A",
                 tokens=tokens,
                 latency=latency,
@@ -1216,7 +1248,7 @@ class RivotrilAgent:
 
     async def _run_stream_structured_async(
         self,
-        prompt: str,
+        prompt: PromptContent,
         response_model: type[BaseModel],
         context_sources: ContextSources,
         result_holder: "AsyncStreamedStructuredResult",
@@ -1231,20 +1263,24 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_stream_async (structured)")
         try:
-            self._run_preflight(prompt)
+            self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             async for chunk in self._astream_chunks(messages, None):
                 response_text += chunk
                 yield chunk
 
-            structured_json = self._redact(response_text)
+            structured_json = (
+                self.pii_redactor.redact(response_text) if self.redact_pii else response_text
+            )
             structured = response_model.model_validate_json(structured_json)
             response_text = structured.model_dump_json()
 
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(prompt, response_text, structured, context_sources)
+            self._run_post_generation(
+                content_to_text(prompt), response_text, structured, context_sources
+            )
             result_holder.result = structured
             logger.info("Agent async structured stream completed successfully")
 
@@ -1272,7 +1308,7 @@ class RivotrilAgent:
         finally:
             latency = time.time() - start_time
             self.metrics.log_execution(
-                prompt=prompt,
+                prompt=content_to_text(prompt),
                 response=response_text if response_text else "N/A",
                 tokens=tokens,
                 latency=latency,

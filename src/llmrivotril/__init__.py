@@ -1,5 +1,6 @@
 from .agent import AsyncStreamedStructuredResult, RivotrilAgent, StreamedStructuredResult
 from .cache import BaseCache, DiskCache, InMemoryCache, RedisCache
+from .content import PromptContent
 from .exceptions import (
     GuardrailViolationError,
     HallucinationDetectedError,
@@ -41,6 +42,7 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "RivotrilAgent",
+    "PromptContent",
     "StreamedStructuredResult",
     "AsyncStreamedStructuredResult",
     "Guardrail",

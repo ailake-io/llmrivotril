@@ -8,8 +8,10 @@ coupling to any specific SDK.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import mimetypes
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -19,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from ._async import run_sync
+from .content import content_to_text
 from .resilience import retryable_exceptions_for_provider
 
 if TYPE_CHECKING:
@@ -130,7 +133,7 @@ class BaseProvider(ABC):
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            parts.append(f"{role.upper()}: {content}")
+            parts.append(f"{role.upper()}: {content_to_text(content)}")
         return "\n\n".join(parts)
 
     def _inject_response_model_prompt(self, prompt: str, response_model: type[BaseModel]) -> str:
@@ -407,12 +410,62 @@ class AnthropicProvider(BaseProvider):
         chat_messages = []
         for msg in messages:
             if msg.get("role") == "system":
-                system = (system or "") + "\n" + str(msg.get("content", ""))
+                system = (system or "") + "\n" + content_to_text(msg.get("content", ""))
             else:
-                chat_messages.append(
-                    {"role": msg.get("role", "user"), "content": str(msg.get("content", ""))}
-                )
+                content = msg.get("content", "")
+                if not isinstance(content, list):
+                    content = str(content)
+                else:
+                    content = self._anthropic_content_blocks(content)
+                chat_messages.append({"role": msg.get("role", "user"), "content": content})
         return system.strip() if system else None, chat_messages
+
+    @staticmethod
+    def _anthropic_content_blocks(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
+        for part in content:
+            part_type = part.get("type", "text")
+            if part_type == "text":
+                blocks.append({"type": "text", "text": str(part.get("text", ""))})
+                continue
+            if part_type == "image_url":
+                image = part.get("image_url", {})
+                uri = image.get("url", "") if isinstance(image, dict) else str(image)
+                if not uri.startswith("data:"):
+                    raise ValueError("Anthropic image content requires a data URL")
+                header, encoded = uri.split(",", 1)
+                media_type = header[5:].split(";", 1)[0] or "image/png"
+                blocks.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": encoded,
+                        },
+                    }
+                )
+                continue
+            if part_type == "document":
+                document = part.get("document", {})
+                uri = document.get("uri", "") if isinstance(document, dict) else str(document)
+                if not uri.startswith("data:"):
+                    raise ValueError("Anthropic document content requires a data URL")
+                header, encoded = uri.split(",", 1)
+                media_type = header[5:].split(";", 1)[0] or "application/pdf"
+                blocks.append(
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": encoded,
+                        },
+                    }
+                )
+                continue
+            raise ValueError(f"Unsupported multimodal content part for Anthropic: {part_type!r}")
+        return blocks
 
     def complete(
         self,
@@ -560,7 +613,7 @@ class CohereProvider(BaseProvider):
         last_message: str | None = None
         for msg in messages:
             role = msg.get("role", "user")
-            content = str(msg.get("content", ""))
+            content = content_to_text(msg.get("content", ""))
             if role == "system":
                 system = (system or "") + "\n" + content
             elif last_message is None and role == "user":
@@ -696,17 +749,89 @@ class GeminiProvider(BaseProvider):
             self._client = genai.Client(api_key=self.api_key, **self.extra_kwargs)
         return self._client
 
-    def _build_gemini_content(self, messages: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
+    def _build_gemini_content(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[str | None, list[Any] | list[str]]:
         system: str | None = None
         contents: list[str] = []
+        rich_contents: list[Any] = []
+        has_rich_content = False
         for msg in messages:
             role = msg.get("role", "user")
-            content = str(msg.get("content", ""))
+            raw_content = msg.get("content", "")
             if role == "system":
-                system = (system or "") + "\n" + content
+                system = (system or "") + "\n" + content_to_text(raw_content)
+            elif isinstance(raw_content, list):
+                from google.genai import types
+
+                parts: list[Any] = []
+                for part in raw_content:
+                    part_type = part.get("type", "text")
+                    if part_type == "text":
+                        parts.append(types.Part.from_text(text=str(part.get("text", ""))))
+                    elif part_type == "image_url":
+                        image = part.get("image_url", {})
+                        uri = image.get("url", "") if isinstance(image, dict) else str(image)
+                        parts.append(self._gemini_part_from_uri(types, uri, "image"))
+                    elif part_type in {"input_audio", "audio"}:
+                        audio = part.get("input_audio", part.get("audio", {}))
+                        data = audio.get("data", "") if isinstance(audio, dict) else ""
+                        mime = (
+                            audio.get("format", "audio/wav")
+                            if isinstance(audio, dict)
+                            else "audio/wav"
+                        )
+                        parts.append(
+                            types.Part.from_bytes(data=base64.b64decode(data), mime_type=mime)
+                        )
+                    elif part_type in {"file", "document"}:
+                        file_data = part.get("file", part.get("document", {}))
+                        uri = (
+                            file_data.get("uri", "")
+                            if isinstance(file_data, dict)
+                            else str(file_data)
+                        )
+                        parts.append(
+                            self._gemini_part_from_uri(types, uri, "application/octet-stream")
+                        )
+                rich_contents.append(
+                    types.Content(role="model" if role == "assistant" else "user", parts=parts)
+                )
+                has_rich_content = True
             else:
-                contents.append(content)
-        return system.strip() if system else None, contents
+                text = str(raw_content)
+                if has_rich_content:
+                    rich_contents.append(
+                        types.Content(
+                            role="model" if role == "assistant" else "user",
+                            parts=[types.Part.from_text(text=text)],
+                        )
+                    )
+                else:
+                    contents.append(text)
+        return system.strip() if system else None, rich_contents if has_rich_content else contents
+
+    @staticmethod
+    def _gemini_part_from_uri(types: Any, uri: str, fallback_mime: str) -> Any:
+        if uri.startswith("data:"):
+            header, encoded = uri.split(",", 1)
+            mime = header[5:].split(";", 1)[0] or fallback_mime
+            return types.Part.from_bytes(data=base64.b64decode(encoded), mime_type=mime)
+        mime = mimetypes.guess_type(uri)[0] or fallback_mime
+        return types.Part.from_uri(file_uri=uri, mime_type=mime)
+
+    def _gemini_response_prompt(
+        self, contents: list[Any] | list[str], model: type[BaseModel]
+    ) -> Any:
+        if all(isinstance(item, str) for item in contents):
+            return self._inject_response_model_prompt("\n\n".join(contents), model)
+        from google.genai import types
+
+        instruction = self._inject_response_model_prompt("", model).lstrip()
+        return [
+            *contents,
+            types.Content(role="user", parts=[types.Part.from_text(text=instruction)]),
+        ]
 
     def complete(
         self,
@@ -718,10 +843,12 @@ class GeminiProvider(BaseProvider):
     ) -> ProviderResponse:
         client = self._get_client()
         system, contents = self._build_gemini_content(messages)
-        prompt = "\n\n".join(contents)
+        prompt = (
+            "\n\n".join(contents) if all(isinstance(item, str) for item in contents) else contents
+        )
 
         if response_model is not None:
-            prompt = self._inject_response_model_prompt(prompt, response_model)
+            prompt = self._gemini_response_prompt(contents, response_model)
 
         request_kwargs = dict(kwargs)
         if system:
@@ -744,10 +871,12 @@ class GeminiProvider(BaseProvider):
     ) -> ProviderResponse:
         client = self._get_client()
         system, contents = self._build_gemini_content(messages)
-        prompt = "\n\n".join(contents)
+        prompt = (
+            "\n\n".join(contents) if all(isinstance(item, str) for item in contents) else contents
+        )
 
         if response_model is not None:
-            prompt = self._inject_response_model_prompt(prompt, response_model)
+            prompt = self._gemini_response_prompt(contents, response_model)
 
         request_kwargs = dict(kwargs)
         if system:
@@ -770,7 +899,9 @@ class GeminiProvider(BaseProvider):
     ) -> Any:
         client = self._get_client()
         system, contents = self._build_gemini_content(messages)
-        prompt = "\n\n".join(contents)
+        prompt = (
+            "\n\n".join(contents) if all(isinstance(item, str) for item in contents) else contents
+        )
 
         request_kwargs = dict(kwargs)
         if system:
@@ -791,7 +922,9 @@ class GeminiProvider(BaseProvider):
     ) -> AsyncIterator[Any]:
         client = self._get_client()
         system, contents = self._build_gemini_content(messages)
-        prompt = "\n\n".join(contents)
+        prompt = (
+            "\n\n".join(contents) if all(isinstance(item, str) for item in contents) else contents
+        )
 
         request_kwargs = dict(kwargs)
         if system:
@@ -825,14 +958,10 @@ class BedrockProvider(BaseProvider):
     Gemini adapters (JSON-schema instructions injected into the prompt).
 
     ``tools=`` is translated to Converse's ``toolConfig`` shape for
-    ``complete()``/``acomplete()``; a requested tool call comes back as
-    ``ProviderResponse.tool_calls`` the same shape ``normalize_tool_calls()``
-    expects from any other provider. Not translated for ``stream()``/
-    ``astream()`` -- Converse's streaming tool-call deltas
-    (``contentBlockStart``/``contentBlockDelta`` with incremental JSON
-    fragments) would need their own accumulation logic distinct from the
-    OpenAI-delta-shaped one ``agent.py`` already has; ``tools`` is silently
-    dropped for streaming rather than guessing at that translation.
+    ``complete()``/``acomplete()`` and for streaming. Converse's
+    ``contentBlockStart``/``contentBlockDelta`` tool-use events are accumulated
+    into a final ``ProviderResponse.tool_calls`` chunk so the generic agent
+    tool loop can execute them and issue the follow-up request.
 
     There's no official async boto3 client, so ``acomplete`` runs the
     synchronous call in a worker thread rather than being natively
@@ -875,7 +1004,7 @@ class BedrockProvider(BaseProvider):
         for msg in messages:
             role = msg.get("role", "user")
             if role == "system":
-                system = (system or []) + [{"text": str(msg.get("content", ""))}]
+                system = (system or []) + [{"text": content_to_text(msg.get("content", ""))}]
             elif role == "tool":
                 # agent.py's tool-calling loop appends one of these per
                 # executed call; Converse expects the result correlated back
@@ -895,9 +1024,62 @@ class BedrockProvider(BaseProvider):
                 )
             else:
                 converse_role = "assistant" if role == "assistant" else "user"
-                content = str(msg.get("content", ""))
-                converse_messages.append({"role": converse_role, "content": [{"text": content}]})
+                content = self._bedrock_content_blocks(msg.get("content", ""))
+                converse_messages.append({"role": converse_role, "content": content})
         return system, converse_messages
+
+    @staticmethod
+    def _bedrock_content_blocks(content: Any) -> list[dict[str, Any]]:
+        if not isinstance(content, list):
+            return [{"text": str(content)}]
+
+        blocks: list[dict[str, Any]] = []
+        for part in content:
+            part_type = part.get("type", "text")
+            if part_type == "text":
+                blocks.append({"text": str(part.get("text", ""))})
+                continue
+
+            if part_type == "image_url":
+                image = part.get("image_url", {})
+                uri = image.get("url", "") if isinstance(image, dict) else str(image)
+                blocks.append({"image": BedrockProvider._binary_source(uri, "image")})
+                continue
+
+            if part_type in {"file", "document"}:
+                document = part.get("file", part.get("document", {}))
+                uri = document.get("uri", "") if isinstance(document, dict) else str(document)
+                blocks.append({"document": BedrockProvider._binary_source(uri, "document")})
+                continue
+
+            if part_type in {"input_audio", "audio"}:
+                audio = part.get("input_audio", part.get("audio", {}))
+                data = audio.get("data", "") if isinstance(audio, dict) else ""
+                fmt = audio.get("format", "wav") if isinstance(audio, dict) else "wav"
+                blocks.append(
+                    {"audio": {"format": fmt, "source": {"bytes": base64.b64decode(data)}}}
+                )
+                continue
+
+            raise ValueError(f"Unsupported multimodal content part for Bedrock: {part_type!r}")
+        return blocks
+
+    @staticmethod
+    def _binary_source(uri: str, block_type: str) -> dict[str, Any]:
+        if not uri.startswith("data:"):
+            raise ValueError(
+                f"Bedrock {block_type} content requires a data URL so the SDK can receive bytes"
+            )
+        header, encoded = uri.split(",", 1)
+        mime = header[5:].split(";", 1)[0]
+        fmt = mime.split("/", 1)[-1] if "/" in mime else "bin"
+        if block_type == "image":
+            return {"format": fmt, "source": {"bytes": base64.b64decode(encoded)}}
+        return {
+            "format": fmt,
+            "name": "document",
+            "source": {"bytes": base64.b64decode(encoded)},
+        }
 
     @staticmethod
     def _tools_to_tool_config(tools: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -1010,14 +1192,45 @@ class BedrockProvider(BaseProvider):
         **kwargs: Any,
     ) -> Any:
         client = self._get_client()
-        kwargs.pop("tools", None)
-        request = self._build_request(messages, model, None, None, kwargs)
+        tools = kwargs.pop("tools", None)
+        request = self._build_request(messages, model, None, tools, kwargs)
         response = client.converse_stream(**request)
+        tool_calls: dict[int, dict[str, Any]] = {}
         for event in response["stream"]:
-            delta = event.get("contentBlockDelta", {}).get("delta", {})
+            start = event.get("contentBlockStart", {}).get("start", {}).get("toolUse")
+            if start is not None:
+                index = event.get("contentBlockStart", {}).get("contentBlockIndex", 0)
+                tool_calls[index] = {
+                    "id": start.get("toolUseId", ""),
+                    "name": start.get("name", ""),
+                    "arguments": "",
+                }
+                continue
+
+            block_delta = event.get("contentBlockDelta", {})
+            index = block_delta.get("contentBlockIndex", 0)
+            delta = block_delta.get("delta", {})
+            tool_delta = delta.get("toolUse")
+            if tool_delta is not None:
+                entry = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                entry["arguments"] += tool_delta.get("input", "")
+                continue
+
             text = delta.get("text")
             if text:
                 yield text
+
+        if tool_calls:
+            parsed_calls: list[dict[str, Any]] = []
+            for call in tool_calls.values():
+                try:
+                    arguments = json.loads(call["arguments"]) if call["arguments"] else {}
+                except json.JSONDecodeError:
+                    arguments = {}
+                parsed_calls.append(
+                    {"id": call["id"], "name": call["name"], "arguments": arguments}
+                )
+            yield ProviderResponse(tool_calls=parsed_calls)
 
     async def astream(
         self,

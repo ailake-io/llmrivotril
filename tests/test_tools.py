@@ -60,6 +60,21 @@ def test_tool_registry_accepts_openai_schema():
     assert len(registry.schemas) == 1
 
 
+def test_tool_registry_accepts_invoke_based_tool_objects():
+    class FakeTool:
+        name = "lookup"
+        description = "Look up a city."
+        args_schema = {"type": "object", "properties": {"city": {"type": "string"}}}
+
+        def invoke(self, arguments: dict[str, str]) -> str:
+            return arguments["city"].upper()
+
+    registry = ToolRegistry([FakeTool()])
+
+    assert registry.schemas[0]["function"]["name"] == "lookup"
+    assert registry.execute(ToolCall("call-1", "lookup", {"city": "Paris"})) == "PARIS"
+
+
 def test_agent_executes_tool_and_returns_final_answer():
     provider = _MockProvider()
     agent = RivotrilAgent(api_key="test", provider=provider)
@@ -125,6 +140,45 @@ def test_agent_executes_tool_via_bedrock_provider_end_to_end():
     # first call's toolUseId.
     second_call_messages = mock_client.converse.call_args_list[1].kwargs["messages"]
     assert second_call_messages[-1]["content"][0]["toolResult"]["toolUseId"] == "call_1"
+
+
+def test_agent_executes_tool_via_bedrock_streaming_end_to_end():
+    fake_boto3 = MagicMock()
+    mock_client = MagicMock()
+    mock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "prefix "}}},
+            {
+                "contentBlockStart": {
+                    "contentBlockIndex": 1,
+                    "start": {"toolUse": {"toolUseId": "call_1", "name": "_add"}},
+                }
+            },
+            {
+                "contentBlockDelta": {
+                    "contentBlockIndex": 1,
+                    "delta": {"toolUse": {"input": '{"a": 1, "b": 2}'}},
+                }
+            },
+            {"contentBlockStop": {"contentBlockIndex": 1}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+    }
+    mock_client.converse.return_value = {
+        "output": {"message": {"content": [{"text": "The sum is 3."}]}},
+        "usage": {"inputTokens": 15, "outputTokens": 5},
+    }
+    fake_boto3.client.return_value = mock_client
+
+    with patch.dict(sys.modules, {"boto3": fake_boto3}):
+        provider = BedrockProvider()
+        agent = RivotrilAgent(provider=provider, model="anthropic.claude-3-5-sonnet-v2:0")
+        chunks = list(agent.run_stream("What is 1+2?", tools=[_add]))
+
+    assert chunks == ["prefix ", "The sum is 3."]
+    stream_request = mock_client.converse_stream.call_args.kwargs
+    assert stream_request["toolConfig"]["tools"][0]["toolSpec"]["name"] == "_add"
 
 
 def test_agent_executes_multiple_tool_rounds():

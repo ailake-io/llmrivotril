@@ -115,6 +115,31 @@ def test_anthropic_provider_unstructured():
         assert response.text == "Hello from Claude"
 
 
+@pytest.mark.skipif(not _package_installed("anthropic"), reason="anthropic not installed")
+def test_anthropic_provider_translates_image_content():
+    provider = AnthropicProvider(api_key="test-key")
+
+    _, messages = provider._build_anthropic_messages(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
+                ],
+            }
+        ]
+    )
+
+    assert messages[0]["content"][1] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+    }
+
+
 @pytest.mark.skipif(not _package_installed("cohere"), reason="cohere not installed")
 def test_cohere_provider_unstructured():
     provider = CohereProvider(api_key="test-key")
@@ -493,6 +518,22 @@ def test_bedrock_provider_unstructured_mocked():
     assert call_kwargs["modelId"] == "anthropic.claude-3-5-sonnet-20241022-v2:0"
     assert call_kwargs["system"] == [{"text": "be nice"}]
     assert call_kwargs["messages"] == [{"role": "user", "content": [{"text": "hi"}]}]
+
+
+def test_bedrock_provider_translates_image_content():
+    blocks = BedrockProvider._bedrock_content_blocks(
+        [
+            {"type": "text", "text": "Describe this."},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,AAAA"},
+            },
+        ]
+    )
+
+    assert blocks[0] == {"text": "Describe this."}
+    assert blocks[1]["image"]["format"] == "png"
+    assert blocks[1]["image"]["source"]["bytes"] == b"\x00\x00\x00"
 
 
 def test_bedrock_provider_structured_mocked():

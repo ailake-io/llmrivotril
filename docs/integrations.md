@@ -68,8 +68,9 @@ matching callable are forwarded for the provider to see but can't be
 auto-executed by `RivotrilAgent`. `response_model=` (CrewAI's structured-output
 param) is passed straight through to `agent.run(response_model=...)`.
 
-Not implemented: streaming, `stop=` (`supports_stop_words()` reports `False`
-honestly instead of silently ignoring it).
+Streaming is available through CrewAI's `stream_events()` protocol when the
+LLM is configured with `stream=True`. Stop sequences remain unsupported
+(`supports_stop_words()` reports `False` instead of silently ignoring them).
 
 ## AG2 / pyautogen
 
@@ -113,7 +114,9 @@ model. Both sync (`_generate`) and async (`_agenerate`, calling
 `agent.run_async` directly rather than LangChain's default thread-pool
 wrapper) are implemented.
 
-Not implemented: streaming and `bind_tools()` -- only plain `invoke`/`ainvoke`.
+Streaming is available through `stream()`/`astream()`, and `bind_tools()`
+forwards schemas and compatible LangChain tools to `RivotrilAgent`.
+`tool_choice` is limited to `None` or `"auto"`.
 
 ## Google ADK
 
@@ -126,9 +129,10 @@ planner = RivotrilAgent(model="gemini-2.0-flash", api_key="...")
 agent = LlmAgent(name="planner", model=RivotrilLlm(agent=planner), instruction="...")
 ```
 
-Not implemented: `stream=True` (a single non-streaming response is yielded
-regardless) and multimodal parts -- only the first text part of each content
-is read; images/audio/function-response parts are ignored.
+`stream=True` yields one ADK response per agent stream chunk. Text, image,
+audio, and file parts are translated to the normalized LLM-Rivotril content
+format. Function-response parts still need explicit tool wiring by the ADK
+orchestrator and are not executed by this adapter itself.
 
 ## Multi-agent setups (crews, group chats, graphs, multi-agent ADK trees)
 

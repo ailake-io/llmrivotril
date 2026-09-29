@@ -275,7 +275,20 @@ encontrados bloqueios críticos de implementação no código.
 
 As limitações conhecidas continuam sendo: os adapters Azure/Bedrock não foram
 validados com credenciais reais, PostgreSQL/Pinecone ainda não foram testados
-contra serviços reais, e `tools=` não está disponível no streaming do Bedrock.
+contra serviços reais, e partes de resposta de função do ADK ainda dependem do
+orquestrador para execução.
+
+## Implementações concluídas após a revisão
+
+- [x] Streaming e `bind_tools()` no adapter LangChain.
+- [x] Streaming pelo protocolo `stream_events()` do CrewAI.
+- [x] Streaming e preservação de partes multimodais no adapter Google ADK.
+- [x] Conteúdo multimodal normalizado no agente, com projeção textual para
+  guardrails, PII, orçamento de tokens e memória.
+- [x] Conversão de conteúdo para OpenAI/Azure, Anthropic, Gemini e Bedrock;
+  Cohere permanece text-only.
+- [x] Tool-calling em streaming no Bedrock Converse, incluindo execução do
+  loop genérico de ferramentas e rodada de follow-up.
 
 ## Correção validada em 29/09/2026
 

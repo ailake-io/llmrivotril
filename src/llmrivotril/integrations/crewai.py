@@ -14,7 +14,10 @@ tool calls run under the same guardrails as the rest of the turn. Bare
 ``tools`` schemas without matching callables are passed through for the
 provider to see, but can't be auto-executed by ``RivotrilAgent``.
 
-Streaming is not implemented -- only ``call()``.
+CrewAI's ``stream_events()`` protocol is supported when the inherited
+``stream`` flag is enabled: chunks from ``RivotrilAgent.run_stream()`` are
+published through CrewAI's stream events and the final text is returned to the
+executor.
 
 Requires: pip install "llmrivotril[crewai]"
 """
@@ -54,6 +57,25 @@ class CrewAILLM(BaseLLM):
     ) -> str | Any:
         prompt = messages if isinstance(messages, str) else flatten_messages(messages)
         agent_tools = list(available_functions.values()) if available_functions else tools
+        if getattr(self, "_effective_stream", lambda: False)():
+            result = self.agent.run_stream(
+                prompt,
+                tools=agent_tools,
+                response_model=response_model,
+            )
+            if response_model is not None and hasattr(result, "result"):
+                chunks = list(result)
+                final = result.result
+            else:
+                chunks = list(result)
+                final = "".join(chunks)
+            for chunk in chunks:
+                self._emit_stream_chunk_event(
+                    chunk,
+                    from_task=from_task,
+                    from_agent=from_agent,
+                )
+            return final
         if response_model is not None:
             return self.agent.run(prompt, tools=agent_tools, response_model=response_model)
         # RivotrilAgent.run() is typed -> Any because it can also return a

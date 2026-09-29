@@ -9,7 +9,7 @@ import inspect
 import json
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger("llmrivotril")
 
@@ -48,10 +48,38 @@ class ToolRegistry:
             self._schemas.append(tool)
             return
 
+        # LangChain BaseTool and compatible tool objects expose a schema and
+        # an ``invoke`` method rather than being directly callable. Keep the
+        # object as the executor while presenting the provider with the same
+        # OpenAI-style schema used by ordinary Python callables.
+        if hasattr(tool, "invoke") and hasattr(tool, "name"):
+            name = str(tool.name)
+            args_schema = getattr(tool, "args_schema", None)
+            if args_schema is None:
+                parameters: dict[str, Any] = {"type": "object", "properties": {}}
+            elif hasattr(args_schema, "model_json_schema"):
+                parameters = args_schema.model_json_schema()
+            elif isinstance(args_schema, dict):
+                parameters = args_schema
+            else:
+                parameters = {"type": "object", "properties": {}}
+            schema = {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": str(getattr(tool, "description", "")),
+                    "parameters": parameters,
+                },
+            }
+            self._schemas.append(schema)
+            self._callables[name] = lambda **kwargs: tool.invoke(kwargs)
+            return
+
         if callable(tool):
             schema = _callable_to_schema(tool)
             self._schemas.append(schema)
-            self._callables[schema["function"]["name"]] = tool
+            function_schema = cast(dict[str, Any], schema["function"])
+            self._callables[str(function_schema["name"])] = tool
             return
 
         raise TypeError(f"Tool must be a dict or callable, got {type(tool)}")

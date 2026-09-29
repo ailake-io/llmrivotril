@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI and release workflows now use `.github/constraints-ci.txt` to keep lint,
   type-check, test, and packaging tool versions reproducible without pinning
   runtime/provider dependencies for downstream applications.
+- LangChain, CrewAI and Google ADK integrations now support streaming through
+  their native adapter protocols; LangChain also supports `bind_tools()`.
+- Prompt content can contain text, image, audio and document parts. OpenAI,
+  Azure, Anthropic, Gemini and Bedrock preserve supported rich content while
+  guardrails, PII redaction, token accounting and memory use a safe text view.
+- Bedrock Converse streaming now accumulates `toolUse` deltas and executes the
+  generic agent tool loop.
 
 ### Added
 

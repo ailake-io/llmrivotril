@@ -71,6 +71,21 @@ def test_agent_without_response_model():
     assert agent.memory.get_context()[-1]["role"] == "assistant"
 
 
+def test_agent_preserves_multimodal_prompt_for_provider_and_text_projection_for_memory():
+    agent, provider = _make_agent()
+    provider._complete_mock.return_value = ProviderResponse(content="I see an image.")
+    prompt = [
+        {"type": "text", "text": "Describe this image"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]
+
+    assert agent.run(prompt) == "I see an image."
+
+    sent_messages = provider._complete_mock.call_args.kwargs["messages"]
+    assert sent_messages[-1]["content"] == prompt
+    assert agent.memory.get_context()[-2]["content"] == "Describe this image\n[image]"
+
+
 def test_agent_uses_provider_retryable_exceptions():
     provider = _MockProvider()
     provider.retryable_exceptions = lambda: (ValueError,)
