@@ -22,7 +22,7 @@ from .providers import (
     OpenAIProvider,
     get_provider,
 )
-from .rag import Document, RAGPipeline
+from .rag import Document, MetadataFilter, RAGPipeline
 from .rag.chunkers import BaseChunker, SimpleChunker
 from .rag.loaders import BaseLoader, CSVLoader, HTMLLoader, MarkdownLoader, PDFLoader, TextLoader
 from .rag.retrievers import BaseRetriever, InMemoryEmbeddingRetriever, InMemoryKeywordRetriever
@@ -65,6 +65,7 @@ __all__ = [
     "EmbeddingFaithfulnessVerifier",
     "ModelBasedFaithfulnessVerifier",
     "Document",
+    "MetadataFilter",
     "RAGPipeline",
     "BaseLoader",
     "BaseChunker",

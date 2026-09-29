@@ -32,6 +32,23 @@ documents = pipeline.retrieve("What is a guardrail?", top_k=3)
 context = pipeline.query("What is a guardrail?", top_k=3)
 ```
 
+You can restrict results by exact top-level metadata values and keep source
+labels in the prompt while limiting its size:
+
+```python
+context = pipeline.query(
+    "What is a guardrail?",
+    metadata_filter={"type": "markdown"},
+    include_sources=True,
+    max_chars=8_000,
+)
+```
+
+The in-memory retrievers apply metadata filters before ranking. External vector
+stores currently filter the returned candidates in Python, so a filtered query
+may return fewer than `top_k` results; backend-native filtering is a future
+optimization.
+
 ## Vector-Store Retrievers
 
 `InMemoryKeywordRetriever`/`InMemoryEmbeddingRetriever` scan a Python list on

@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so custom RAG components do not depend on internal module paths.
 - Async RAG methods now execute synchronous loading, chunking and retrieval in
   a short-lived worker without blocking the event loop.
+- RAG queries support exact metadata filters, source labels and maximum context
+  size limits.
 
 ### Fixed
 

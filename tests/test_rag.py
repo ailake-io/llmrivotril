@@ -242,6 +242,31 @@ def test_rag_pipeline_retrieve_preserves_document_metadata(sample_dir):
     assert documents[0].metadata["source"].endswith("detail.md")
 
 
+def test_rag_pipeline_filters_metadata(sample_dir):
+    pipeline = RAGPipeline()
+    pipeline.ingest(sample_dir)
+
+    documents = pipeline.retrieve(
+        "guardrails",
+        top_k=3,
+        metadata_filter={"source": str(sample_dir / "detail.md")},
+    )
+
+    assert len(documents) == 1
+    assert "Guardrails validate" in documents[0].content
+
+
+def test_rag_pipeline_formats_sources_with_a_character_limit():
+    document = Document(content="abcdef", metadata={"source": "guide.md"})
+
+    context = RAGPipeline.format_context([document], include_sources=True, max_chars=25)
+
+    assert context == "[Source: guide.md]\nabcdef"
+    assert len(context) == 25
+    with pytest.raises(ValueError, match="max_chars"):
+        RAGPipeline.format_context([document], max_chars=-1)
+
+
 def test_rag_pipeline_format_context():
     pipeline = RAGPipeline()
     formatted = pipeline.format_context([Document(content="A"), Document(content="B")])
@@ -259,6 +284,13 @@ async def test_rag_pipeline_aingest_and_aquery(sample_dir):
 
     documents = await pipeline.aretrieve("validate inputs", top_k=1)
     assert documents[0].metadata["source"].endswith("detail.md")
+
+    filtered = await pipeline.aretrieve(
+        "guardrails",
+        top_k=1,
+        metadata_filter={"source": str(sample_dir / "detail.md")},
+    )
+    assert "Guardrails validate" in filtered[0].content
 
 
 @pytest.mark.asyncio

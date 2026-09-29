@@ -10,7 +10,7 @@ from typing import Any
 
 from ..semantic import _cosine_similarity
 from ..verifier import _tokenize
-from .document import Document
+from .document import Document, MetadataFilter, matches_metadata
 
 logger = logging.getLogger("llmrivotril")
 
@@ -36,7 +36,12 @@ class BaseRetriever(ABC):
         ...
 
     @abstractmethod
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         """Return the most relevant documents for ``query``."""
         ...
 
@@ -56,7 +61,12 @@ class InMemoryKeywordRetriever(BaseRetriever):
             self._documents.append(doc)
             self._tokens.append(_tokenize(doc.content))
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         _validate_top_k(top_k)
         query_tokens = _tokenize(query)
         if not query_tokens or not self._documents:
@@ -64,6 +74,8 @@ class InMemoryKeywordRetriever(BaseRetriever):
 
         scores: list[tuple[int, Document]] = []
         for doc, tokens in zip(self._documents, self._tokens, strict=False):
+            if not matches_metadata(doc, metadata_filter):
+                continue
             score = len(query_tokens & tokens)
             scores.append((score, doc))
 
@@ -164,22 +176,34 @@ class InMemoryEmbeddingRetriever(BaseRetriever):
             self._embeddings.append(self._embedding_cache[content_hash])
         self._embeddings_matrix = None
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         _validate_top_k(top_k)
         if self._fallback is not None:
-            return self._fallback.retrieve(query, top_k)
+            return self._fallback.retrieve(query, top_k, metadata_filter)
 
-        if not self._documents:
+        eligible_indices = [
+            index
+            for index, document in enumerate(self._documents)
+            if matches_metadata(document, metadata_filter)
+        ]
+        if not eligible_indices:
             return []
 
         embed = self._load_model()
         query_embedding = list(embed(query))
 
         if np is not None:
-            return self._retrieve_numpy(query_embedding, top_k)
-        return self._retrieve_pure_python(query_embedding, top_k)
+            return self._retrieve_numpy(query_embedding, top_k, eligible_indices)
+        return self._retrieve_pure_python(query_embedding, top_k, eligible_indices)
 
-    def _retrieve_numpy(self, query_embedding: list[float], top_k: int) -> list[Document]:
+    def _retrieve_numpy(
+        self, query_embedding: list[float], top_k: int, eligible_indices: list[int]
+    ) -> list[Document]:
         """Vectorized cosine-similarity scan.
 
         ~5x faster than the pure-Python fallback at a few thousand documents
@@ -188,19 +212,24 @@ class InMemoryEmbeddingRetriever(BaseRetriever):
         """
         if self._embeddings_matrix is None:
             self._embeddings_matrix = np.asarray(self._embeddings, dtype=np.float32)
-        matrix = self._embeddings_matrix
+        matrix = self._embeddings_matrix[eligible_indices]
         query_vec = np.asarray(query_embedding, dtype=np.float32)
 
         dots = matrix @ query_vec
         norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query_vec)
         similarities = np.divide(dots, norms, out=np.zeros_like(dots), where=norms > 0)
         top_indices = np.argsort(-similarities)[:top_k]
-        return [self._documents[i] for i in top_indices]
+        return [self._documents[eligible_indices[i]] for i in top_indices]
 
-    def _retrieve_pure_python(self, query_embedding: list[float], top_k: int) -> list[Document]:
+    def _retrieve_pure_python(
+        self, query_embedding: list[float], top_k: int, eligible_indices: list[int]
+    ) -> list[Document]:
         scores = [
-            (_cosine_similarity(query_embedding, vector), doc)
-            for doc, vector in zip(self._documents, self._embeddings, strict=False)
+            (
+                _cosine_similarity(query_embedding, self._embeddings[index]),
+                self._documents[index],
+            )
+            for index in eligible_indices
         ]
         scores.sort(key=lambda item: item[0], reverse=True)
         return [doc for _, doc in scores[:top_k]]

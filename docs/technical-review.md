@@ -194,7 +194,7 @@ de qualidade antes de iniciar a seguinte.
 
 ## Validação desta execução
 
-- 319 testes passaram e 3 foram pulados por serem opcionais ou lentos.
+- 321 testes passaram e 3 foram pulados por serem opcionais ou lentos.
 - `ruff check src tests` passou.
 - `ruff format --check src tests` passou.
 - `git diff --check` passou.
@@ -202,6 +202,8 @@ de qualidade antes de iniciar a seguinte.
 - O streaming Bedrock assíncrono passou em conjunto com os testes de RAG.
 - O RAG expõe `retrieve()`/`aretrieve()` para preservar metadados e rejeita
   limites `top_k` negativos.
+- O RAG aceita filtros de metadados, fontes no contexto e limite de caracteres
+  para reduzir o risco de exceder o contexto do modelo.
 - Os pontos de extensão do RAG (`BaseLoader`, `BaseChunker` e `BaseRetriever`)
   estão disponíveis no namespace público `llmrivotril`.
 - O adapter Gemini passou nos testes mockados do SDK novo; a integração real

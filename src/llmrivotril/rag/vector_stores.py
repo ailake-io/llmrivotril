@@ -27,7 +27,7 @@ from hashlib import sha256
 from threading import Lock
 from typing import Any
 
-from .document import Document
+from .document import Document, MetadataFilter, matches_metadata
 from .retrievers import BaseRetriever, _validate_top_k
 
 logger = logging.getLogger("llmrivotril")
@@ -149,7 +149,12 @@ class PgVectorRetriever(BaseRetriever):
                 (doc_id, doc.content, json.dumps(doc.metadata), str(vector)),
             )
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         _validate_top_k(top_k)
         conn = self._get_connection()
         query_vector = list(self._embedder.embed(query))
@@ -158,7 +163,10 @@ class PgVectorRetriever(BaseRetriever):
             "ORDER BY embedding <=> %s LIMIT %s",
             (str(query_vector), top_k),
         ).fetchall()
-        return [Document(content=row[0], metadata=row[1] or {}, id=row[2] or "") for row in rows]
+        documents = [
+            Document(content=row[0], metadata=row[1] or {}, id=row[2] or "") for row in rows
+        ]
+        return [doc for doc in documents if matches_metadata(doc, metadata_filter)]
 
 
 class QdrantRetriever(BaseRetriever):
@@ -234,14 +242,19 @@ class QdrantRetriever(BaseRetriever):
             )
         client.upsert(collection_name=self.collection_name, points=points)
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         _validate_top_k(top_k)
         client = self._get_client()
         query_vector = list(self._embedder.embed(query))
         response = client.query_points(
             collection_name=self.collection_name, query=query_vector, limit=top_k
         )
-        return [
+        documents = [
             Document(
                 content=point.payload.get("content", ""),
                 metadata=point.payload.get("metadata") or {},
@@ -249,6 +262,7 @@ class QdrantRetriever(BaseRetriever):
             )
             for point in response.points
         ]
+        return [doc for doc in documents if matches_metadata(doc, metadata_filter)]
 
 
 class WeaviateRetriever(BaseRetriever):
@@ -311,7 +325,12 @@ class WeaviateRetriever(BaseRetriever):
                     uuid=_stable_uuid(doc_id),
                 )
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         _validate_top_k(top_k)
         collection = self._get_collection()
         query_vector = list(self._embedder.embed(query))
@@ -327,7 +346,7 @@ class WeaviateRetriever(BaseRetriever):
                     id=obj.properties.get("doc_id", ""),
                 )
             )
-        return documents
+        return [doc for doc in documents if matches_metadata(doc, metadata_filter)]
 
 
 class PineconeRetriever(BaseRetriever):
@@ -397,7 +416,12 @@ class PineconeRetriever(BaseRetriever):
             )
         index.upsert(vectors=vectors, namespace=self.namespace)
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        metadata_filter: MetadataFilter | None = None,
+    ) -> list[Document]:
         _validate_top_k(top_k)
         index = self._get_index()
         query_vector = list(self._embedder.embed(query))
@@ -409,4 +433,4 @@ class PineconeRetriever(BaseRetriever):
             metadata = dict(match.get("metadata", {}))
             content = metadata.pop("content", "")
             documents.append(Document(content=content, metadata=metadata, id=match.get("id", "")))
-        return documents
+        return [doc for doc in documents if matches_metadata(doc, metadata_filter)]
