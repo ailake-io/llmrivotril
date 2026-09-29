@@ -48,10 +48,12 @@ usado por guardrails, redação de PII, orçamento de tokens e memória; provide
 que suportam conteúdo rico recebem o payload de imagem/áudio/documento:
 
 ```python
-response = agent.run([
-    {"type": "text", "text": "Descreva esta imagem."},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
-])
+response = agent.run(
+    [
+        {"type": "text", "text": "Descreva esta imagem."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+    ]
+)
 ```
 
 OpenAI/Azure, Gemini e Bedrock suportam texto e partes de imagem/áudio/documento;

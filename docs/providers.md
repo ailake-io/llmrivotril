@@ -48,10 +48,12 @@ PII redaction, token budgets, and memory; providers that support rich content
 receive the image/audio/document payload unchanged:
 
 ```python
-response = agent.run([
-    {"type": "text", "text": "Describe this image."},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
-])
+response = agent.run(
+    [
+        {"type": "text", "text": "Describe this image."},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+    ]
+)
 ```
 
 OpenAI/Azure, Gemini and Bedrock support text plus image/audio/document parts;
