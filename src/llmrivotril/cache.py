@@ -92,10 +92,10 @@ def _decode_json(value: Any) -> Any:
 
 
 def cache_key(
-    messages: list[dict[str, Any]],
+    messages: list[Any],
     model: str,
     response_model: type[Any] | None = None,
-    tools: list[dict[str, Any]] | None = None,
+    tools: list[Any] | None = None,
     system_prompt: str | None = None,
     provider_name: str = "base",
     base_url: str | None = None,
