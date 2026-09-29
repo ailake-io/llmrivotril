@@ -1,16 +1,18 @@
 # Async, Streaming & Function Calling
 
-[← Back to README](../README.md)
+[← Back to README](../README.md) · *[Português](streaming-and-tools.pt-BR.md)*
 
 ## Async Usage
 
 ```python
 import asyncio
 
+
 async def main():
     agent = RivotrilAgent(api_key=os.getenv("OPENAI_API_KEY"))
     response = await agent.run_async("Hello!")
     print(response)
+
 
 asyncio.run(main())
 ```
@@ -57,9 +59,11 @@ Give the agent tools as callables or OpenAI-style schemas:
 ```python
 from llmrivotril import RivotrilAgent
 
+
 def get_weather(city: str) -> str:
     """Return the weather for a city."""
     return f"Sunny in {city}."
+
 
 agent = RivotrilAgent(api_key="sk-...")
 response = agent.run("What is the weather in Paris?", tools=[get_weather])

@@ -1,5 +1,7 @@
 # RAG (Retrieval-Augmented Generation)
 
+*[Português](rag.pt-BR.md)*
+
 [← Back to README](../README.md)
 
 Build a local RAG pipeline to feed retrieved context into the agent:
@@ -94,7 +96,9 @@ from llmrivotril.verifier import Verifier
 
 agent = RivotrilAgent(
     api_key=os.getenv("OPENAI_API_KEY"),
-    verifier=Verifier(check_fn=EmbeddingFaithfulnessVerifier(similarity_threshold=0.6).as_callable()),
+    verifier=Verifier(
+        check_fn=EmbeddingFaithfulnessVerifier(similarity_threshold=0.6).as_callable()
+    ),
 )
 ```
 
