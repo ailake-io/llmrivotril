@@ -211,3 +211,19 @@ def test_summary_persists_through_to_dict_and_from_dict():
     restored = MemoryStore()
     restored.from_dict(snapshot)
     assert restored.get_context()[0]["content"] == "Summary of earlier conversation:\nSUMMARY"
+
+
+def test_summarize_trigger_below_default_retention_window_still_fires():
+    calls = []
+
+    def fake_summarize(text: str) -> str:
+        calls.append(text)
+        return "SUMMARY"
+
+    memory = MemoryStore(summarize=fake_summarize, summarize_trigger_turns=4)
+    for i in range(5):
+        memory.add_turn("user", f"turn {i}")
+
+    assert len(memory.history) == 4
+    assert calls == ["user: turn 0"]
+    assert memory.get_context()[0]["role"] == "system"
