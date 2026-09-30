@@ -82,6 +82,9 @@ class MemoryStore:
         to_summarize: list[dict[str, str]] | None = None
         keep = self.retention_window * 2
         if self.summarize is not None and len(self.history) > self.summarize_trigger_turns:
+            # A trigger below the retention cap must still fire: never keep
+            # more raw turns than the trigger itself allows.
+            keep = min(keep, max(self.summarize_trigger_turns, 0))
             if keep > 0 and len(self.history) > keep:
                 to_summarize = self.history[:-keep]
                 self.history = self.history[-keep:]
