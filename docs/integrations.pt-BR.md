@@ -16,7 +16,7 @@ frameworks é dependência do núcleo.
 | Framework | Adapter | Interface implementada | Extra |
 |---|---|---|---|
 | CrewAI | `llmrivotril.integrations.crewai.CrewAILLM` | `BaseLLM.call()` | `llmrivotril[crewai]` |
-| AG2 / pyautogen | `llmrivotril.integrations.autogen.RivotrilModelClient` | protocolo `ModelClient` | nenhum (tipagem estrutural) |
+| AG2 / pyautogen | `llmrivotril.integrations.autogen.RivotrilModelClient` | protocolo `ModelClient` | nenhum do llmrivotril, mas precisa de `ag2<1.0` instalado por você -- ver abaixo |
 | LangChain / LangGraph | `llmrivotril.integrations.langchain.RivotrilChatModel` | `BaseChatModel._generate()` | `llmrivotril[langchain]` |
 | Google ADK | `llmrivotril.integrations.adk.RivotrilLlm` | `BaseLlm.generate_content_async()` | `llmrivotril[adk]` |
 
@@ -74,9 +74,23 @@ LLM é configurado com `stream=True`. Sequências `stop` continuam sem suporte
 
 ## AG2 / pyautogen
 
-Sem instalação extra: `ModelClient` é um `Protocol` estrutural, satisfeito por
-métodos correspondentes em vez de uma subclasse, então este adapter não tem
-dependência nenhuma do pacote `ag2`/`pyautogen` em si.
+> **Precisa especificamente de `ag2<1.0` -- `pip install ag2` hoje instala a
+> 1.x e NÃO funciona com este adapter.** Os dois pacotes da linhagem AutoGen
+> no PyPI mudaram desde que este adapter foi escrito: `ag2>=1.0` reescreveu
+> a API inteira (`Agent`/`Task`/`Toolkit`/`Context` -- sem `AssistantAgent`,
+> sem `register_model_client`), e `pyautogen` agora é só um proxy pro
+> `autogen-agentchat`/`autogen-core` (a reescrita separada da Microsoft, a
+> interface `ChatCompletionClient` mencionada abaixo, que este adapter também
+> não tem como alvo). Confirmado funcionando contra `ag2==0.14.0`
+> especificamente; `pip install "ag2<1.0"` pra pegar o último release com a
+> API clássica. Nenhum extra do llmrivotril instala isso pra você (ver
+> abaixo).
+
+Sem instalação extra do llmrivotril: `ModelClient` é um `Protocol` estrutural,
+satisfeito por métodos correspondentes em vez de uma subclasse, então este
+adapter não tem dependência nenhuma do pacote `ag2`/`pyautogen` em si -- mas
+você ainda precisa instalar `ag2<1.0` por conta própria pra rodar de verdade,
+conforme o aviso acima.
 
 ```python
 import autogen

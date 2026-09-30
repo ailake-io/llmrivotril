@@ -351,3 +351,57 @@ Não verificado: nenhum adapter foi exercitado dentro de um crew/group
 chat/grafo multi-agente real -- só chamada única mockada + chamada única
 contra a classe real instalada. `docs/integrations.md` documenta isso
 explicitamente na seção "Not verified against a live multi-agent run".
+
+## Verificação end-to-end contra API real e release 0.1.1 -- 30/09/2026
+
+Depois do release `0.1.0` no PyPI, rodado um teste real (não mockado) contra
+um provider de verdade (OpenRouter, `openai/gpt-4o-mini`, via `base_url=`)
+exercitando `RivotrilAgent` sozinho e depois cada um dos 4 adapters de
+`llmrivotril.integrations`, cada um instalado do PyPI publicado em venv
+isolado (evita contaminação cruzada de dependências entre frameworks, que já
+causou um falso-negativo por conflito de `protobuf` na primeira tentativa
+com tudo num venv só).
+
+**Achados reais em `RivotrilAgent` (corrigidos, publicados como `0.1.1`):**
+
+1. Tool-calling quebrado contra qualquer API real: `_handle_tool_calls`
+   nunca incluía a mensagem do assistant com `tool_calls` antes das
+   mensagens `role: "tool"`. Toda API compatível com OpenAI rejeita isso
+   ("messages with role 'tool' must be a response to a preceding message
+   with 'tool_calls'"). Não pego antes porque todo teste unitário mocka
+   `complete()` direto, nunca valida a ordem de mensagens. Corrigido com
+   `_assistant_tool_call_message()` + teste de regressão que inspeciona as
+   mensagens de verdade da chamada seguinte, não só a resposta final.
+   Reverificado contra API real: 0/2 → 8/8.
+2. `MetricsCollector`/`global_metrics` não exportados no topo do pacote,
+   só via `llmrivotril.metrics`, apesar de `RivotrilAgent(metrics=...)`
+   documentar isso como uso público. Corrigido.
+
+O `0.1.0` já publicado no PyPI **continua com os dois bugs** (arquivos de
+release do PyPI são imutáveis) -- `0.1.1` é a versão corrigida.
+
+**Achado real nos adapters de integração (não corrigido, é limitação do
+ecossistema, não bug do llmrivotril):**
+
+- CrewAI, LangChain e Google ADK: confirmados funcionando de ponta a ponta
+  contra API real, cada um em venv isolado com a versão validada em
+  `.github/constraints-runtime.txt` (`crewai==1.15.23`,
+  `langchain-core==1.6.6`, `google-adk==2.10.0`).
+- AG2/pyautogen: **`pip install ag2` hoje instala 1.1.1, que reescreveu toda
+  a API** (`Agent`/`Task`/`Toolkit`/`Context`, sem `AssistantAgent` nem
+  `register_model_client`) -- e `pyautogen` virou proxy pro
+  `autogen-agentchat`/`autogen-core` da Microsoft, outra API nova
+  (`ChatCompletionClient`, que este adapter também não usa). A API clássica
+  que o adapter usa só existe em `ag2<1.0`; confirmado funcionando de ponta
+  a ponta contra `ag2==0.14.0` especificamente, isolado do resto (evita a
+  colisão de `protobuf` com o `google-adk`). `docs/integrations.md` e
+  `.github/constraints-runtime.txt` atualizados com aviso explícito e a
+  versão pinada -- sem isso, qualquer usuário novo seguindo a doc anterior
+  instalaria a 1.x e o adapter simplesmente não funcionaria, sem pista do
+  motivo.
+
+Lição: "não verificado contra multi-agente real" (nota anterior) não é a
+única lacuna que importa -- bibliotecas de terceiros mudam de API rápido
+o suficiente pra que mesmo uma verificação recente vire obsoleta em
+semanas; vale reverificar versões de dependência de tempos em tempos, não
+só na primeira implementação.

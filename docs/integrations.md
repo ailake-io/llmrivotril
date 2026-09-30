@@ -16,7 +16,7 @@ frameworks are core dependencies.
 | Framework | Adapter | Interface implemented | Extra |
 |---|---|---|---|
 | CrewAI | `llmrivotril.integrations.crewai.CrewAILLM` | `BaseLLM.call()` | `llmrivotril[crewai]` |
-| AG2 / pyautogen | `llmrivotril.integrations.autogen.RivotrilModelClient` | `ModelClient` protocol | none (structural typing) |
+| AG2 / pyautogen | `llmrivotril.integrations.autogen.RivotrilModelClient` | `ModelClient` protocol | none from llmrivotril, but needs `ag2<1.0` installed yourself -- see below |
 | LangChain / LangGraph | `llmrivotril.integrations.langchain.RivotrilChatModel` | `BaseChatModel._generate()` | `llmrivotril[langchain]` |
 | Google ADK | `llmrivotril.integrations.adk.RivotrilLlm` | `BaseLlm.generate_content_async()` | `llmrivotril[adk]` |
 
@@ -74,9 +74,21 @@ LLM is configured with `stream=True`. Stop sequences remain unsupported
 
 ## AG2 / pyautogen
 
+> **Requires `ag2<1.0` specifically -- `pip install ag2` today gets 1.x and
+> will NOT work with this adapter.** Both AutoGen-lineage packages on PyPI
+> moved on since this adapter was written: `ag2>=1.0` replaced its entire API
+> (`Agent`/`Task`/`Toolkit`/`Context` -- no `AssistantAgent`, no
+> `register_model_client`), and `pyautogen` is now just a proxy package for
+> Microsoft's separate `autogen-agentchat`/`autogen-core` rewrite (the
+> `ChatCompletionClient` interface mentioned below, which this adapter also
+> doesn't target). Confirmed working against `ag2==0.14.0` specifically;
+> `pip install "ag2<1.0"` to get the last release with the classic API. No
+> extra of llmrivotril's own installs this for you (see below).
+
 No extra install: `ModelClient` is a structural `Protocol`, satisfied by
 matching methods rather than a subclass, so this adapter has zero dependency
-on the `ag2`/`pyautogen` package itself.
+on the `ag2`/`pyautogen` package itself -- but you still need `ag2<1.0`
+installed yourself to actually run it, per the warning above.
 
 ```python
 import autogen

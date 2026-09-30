@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Documented that the AG2/pyautogen integration adapter requires `ag2<1.0`
+  specifically -- `ag2>=1.0` and the current `pyautogen` (now a proxy for
+  Microsoft's separate `autogen-agentchat`/`autogen-core` rewrite) both
+  dropped the `AssistantAgent`/`register_model_client` API this adapter
+  targets. Found while verifying all four framework adapters end-to-end
+  against a real provider; CrewAI, LangChain, and Google ADK confirmed
+  working as-is. Pinned `ag2==0.14.0` in `.github/constraints-runtime.txt`.
+
 ## [0.1.1] - 2026-09-30
 
 ### Fixed
