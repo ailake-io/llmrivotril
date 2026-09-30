@@ -114,7 +114,10 @@ agent = RivotrilAgent(
   `memory_summarize_trigger_turns`, via a direct provider call (bypasses
   guardrails/cache/retry -- internal housekeeping, not a user-facing turn). A
   failed summarization call is logged and skipped rather than raised; the
-  turns are still trimmed either way. This costs one extra LLM call per
+  turns are still trimmed either way. When summarization fires, at most
+  `memory_summarize_trigger_turns` raw turns are kept (capped by
+  `retention_window * 2`), so a trigger below that cap takes effect as set.
+  This costs one extra LLM call per
   summarization round to save tokens on every turn afterward -- only worth it
   for genuinely long conversations.
 

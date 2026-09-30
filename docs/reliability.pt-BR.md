@@ -117,7 +117,10 @@ agent = RivotrilAgent(
   direta ao provider (ignora guardrails/cache/retry -- é manutenção interna,
   não um turno voltado ao usuário). Uma chamada de sumarização que falha é
   logada e ignorada em vez de propagada; os turnos são cortados de qualquer
-  forma. Isso custa uma chamada extra de LLM por rodada de sumarização para
+  forma. Quando a sumarização dispara, no máximo
+  `memory_summarize_trigger_turns` turnos brutos são mantidos (limitado por
+  `retention_window * 2`), então um gatilho abaixo desse teto tem efeito como
+  configurado. Isso custa uma chamada extra de LLM por rodada de sumarização para
   economizar tokens em cada turno depois -- só vale a pena para conversas
   genuinamente longas.
 

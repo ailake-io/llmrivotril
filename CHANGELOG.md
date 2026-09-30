@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-30
+
+### Fixed
+
+- `MemoryStore`/`memory_summarize`: a `summarize_trigger_turns` lower than
+  `retention_window * 2` (20 by default) never summarized anything, because
+  turns were only evicted past the retention cap. The trigger now takes
+  effect; default behavior (trigger 20, window 10) is unchanged. See
+  `docs/reliability.md`.
+
 ## [0.1.3] - 2026-09-30
 
 ### Added
