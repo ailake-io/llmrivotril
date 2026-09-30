@@ -1,5 +1,7 @@
 # LLM-Rivotril
 
+![Logo do LLM-Rivotril](https://github.com/ailake-io/llmrivotril/blob/main/docs/assets/logo.jpeg?raw=true)
+
 *[English](README.md)*
 
 Um framework Python leve para reduzir alucinações de LLM, aplicar guardrails, gerenciar memória com estado e monitorar desempenho por um dashboard web local.
