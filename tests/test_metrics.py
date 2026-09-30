@@ -62,6 +62,40 @@ def test_reset():
     assert summary["logs"] == []
 
 
+def test_cache_hit_tracked_in_summary_and_log():
+    metrics = MetricsCollector()
+    metrics.log_execution("p", "r", tokens=1, latency=0.1, cache_hit=False)
+    metrics.log_execution("p", "r", tokens=1, latency=0.0, cache_hit=True)
+
+    summary = metrics.get_summary()
+    assert summary["cache_hits"] == 1
+    assert summary["cache_hit_rate"] == 50.0
+    assert summary["logs"][0]["cache_hit"] is True
+    assert summary["logs"][1]["cache_hit"] is False
+
+
+def test_cache_hit_defaults_to_false():
+    metrics = MetricsCollector()
+    metrics.log_execution("p", "r", tokens=1, latency=0.1)
+
+    summary = metrics.get_summary()
+    assert summary["cache_hits"] == 0
+    assert summary["cache_hit_rate"] == 0.0
+    assert summary["logs"][0]["cache_hit"] is False
+
+
+def test_cache_hits_survive_reset_and_round_trip():
+    metrics = MetricsCollector()
+    metrics.log_execution("p", "r", tokens=1, latency=0.1, cache_hit=True)
+    metrics.reset()
+    assert metrics.get_summary()["cache_hits"] == 0
+
+    metrics.log_execution("p", "r", tokens=1, latency=0.1, cache_hit=True)
+    loaded = MetricsCollector()
+    loaded.from_dict(metrics.to_dict())
+    assert loaded.cache_hits == 1
+
+
 def test_thread_safety():
     metrics = MetricsCollector()
 

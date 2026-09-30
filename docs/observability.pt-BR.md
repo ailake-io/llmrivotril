@@ -63,6 +63,29 @@ tem acesso completo -- então esse dashboard continua sendo pensado para uso
 local ou em rede confiável, não multi-tenant ou exposição pública; coloque
 um proxy de auth/rate-limiting de verdade na frente dele para isso.
 
+## Visibilidade de cache hit
+
+O campo `tokens` do `get_summary()` (e de cada log por request) é uma
+estimativa local via tiktoken sobre o texto de prompt+resposta -- idêntico
+se a request de fato bateu no provider ou foi servida do cache, já que o
+texto é o mesmo nos dois casos. Pra ver se o cache está de fato evitando
+chamadas de API repetidas, use `cache_hits`/`cache_hit_rate` no resumo, e o
+booleano `cache_hit` por request em `logs`:
+
+```python
+agent = RivotrilAgent(api_key="sk-...", cache=InMemoryCache())
+agent.run("Explique o que é um guardrail.")
+agent.run("Explique o que é um guardrail.")
+
+summary = agent.metrics.get_summary()
+print(summary["cache_hits"], summary["cache_hit_rate"])  # 1, 50.0
+print(summary["logs"][0]["cache_hit"])  # True -- a chamada mais recente, um hit
+```
+
+O tile "Cache Hit Rate" do dashboard e o badge "Cache Hit" de cada linha da
+tabela de auditoria refletem esse mesmo dado. `/api/metrics/prometheus`
+expõe como `llmrivotril_cache_hits_total`/`llmrivotril_cache_hit_rate`.
+
 ## Benchmark
 
 Rode o benchmark de red-team embutido com mocks determinísticos (sem API

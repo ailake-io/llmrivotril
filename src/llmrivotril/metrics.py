@@ -10,7 +10,7 @@ from typing import Any
 class MetricsCollector:
     """Thread-safe telemetry store.
 
-    Tracks requests, tokens, guardrail blocks, and hallucinations.
+    Tracks requests, tokens, guardrail blocks, hallucinations, and cache hits.
     """
 
     def __init__(self, auto_save_path: str | Path | None = None) -> None:
@@ -19,6 +19,7 @@ class MetricsCollector:
         self.guardrail_blocks = 0
         self.hallucinations_detected = 0
         self.errors_total = 0
+        self.cache_hits = 0
         self.total_tokens_consumed = 0
         self.total_cost_usd: float | None = None
         self.latencies: list[float] = []
@@ -35,6 +36,7 @@ class MetricsCollector:
         hallucination_blocked: bool = False,
         error: str | None = None,
         cost_usd: float | None = None,
+        cache_hit: bool = False,
     ) -> None:
         with self._lock:
             self.requests_total += 1
@@ -52,6 +54,8 @@ class MetricsCollector:
                 self.hallucinations_detected += 1
             if error is not None and not guardrail_blocked and not hallucination_blocked:
                 self.errors_total += 1
+            if cache_hit:
+                self.cache_hits += 1
 
             self.logs.insert(
                 0,
@@ -65,6 +69,7 @@ class MetricsCollector:
                     "hallucination_blocked": hallucination_blocked,
                     "error": error,
                     "cost_usd": cost_usd,
+                    "cache_hit": cache_hit,
                 },
             )
             # Keep history capped at 100 items
@@ -79,6 +84,7 @@ class MetricsCollector:
             self.guardrail_blocks = 0
             self.hallucinations_detected = 0
             self.errors_total = 0
+            self.cache_hits = 0
             self.total_tokens_consumed = 0
             self.total_cost_usd = None
             self.latencies.clear()
@@ -90,13 +96,17 @@ class MetricsCollector:
             failed = self.guardrail_blocks + self.hallucinations_detected + self.errors_total
             if self.requests_total > 0:
                 success_rate = max(0.0, (self.requests_total - failed) / self.requests_total * 100)
+                cache_hit_rate = self.cache_hits / self.requests_total * 100
             else:
                 success_rate = 100.0
+                cache_hit_rate = 0.0
             return {
                 "requests_total": self.requests_total,
                 "guardrail_blocks": self.guardrail_blocks,
                 "hallucinations_detected": self.hallucinations_detected,
                 "errors_total": self.errors_total,
+                "cache_hits": self.cache_hits,
+                "cache_hit_rate": round(cache_hit_rate, 2),
                 "total_tokens_consumed": self.total_tokens_consumed,
                 "total_cost_usd": self.total_cost_usd,
                 "avg_latency": round(avg_latency, 3),
@@ -111,6 +121,7 @@ class MetricsCollector:
                 "requests_total": self.requests_total,
                 "guardrail_blocks": self.guardrail_blocks,
                 "hallucinations_detected": self.hallucinations_detected,
+                "cache_hits": self.cache_hits,
                 "total_tokens_consumed": self.total_tokens_consumed,
                 "total_cost_usd": self.total_cost_usd,
                 "latencies": self.latencies.copy(),
@@ -124,6 +135,7 @@ class MetricsCollector:
             self.guardrail_blocks = data.get("guardrail_blocks", 0)
             self.hallucinations_detected = data.get("hallucinations_detected", 0)
             self.errors_total = data.get("errors_total", 0)
+            self.cache_hits = data.get("cache_hits", 0)
             self.total_tokens_consumed = data.get("total_tokens_consumed", 0)
             self.total_cost_usd = data.get("total_cost_usd", None)
             self.latencies = data.get("latencies", []).copy()

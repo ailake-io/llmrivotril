@@ -61,6 +61,29 @@ dashboard remains meant for local or trusted-network use, not multi-tenant
 or public exposure; put a real auth/rate-limiting proxy in front of it for
 that.
 
+## Cache Hit Visibility
+
+`get_summary()`'s `tokens` figure (and each per-request log's `tokens`) is a
+local tiktoken estimate over the prompt+response text -- identical whether a
+request actually hit the provider or was served from cache, since the text
+is the same either way. To see whether caching is actually avoiding repeated
+API calls, use `cache_hits`/`cache_hit_rate` in the summary, and the
+per-request `cache_hit` boolean in `logs`:
+
+```python
+agent = RivotrilAgent(api_key="sk-...", cache=InMemoryCache())
+agent.run("Explain what a guardrail is.")
+agent.run("Explain what a guardrail is.")
+
+summary = agent.metrics.get_summary()
+print(summary["cache_hits"], summary["cache_hit_rate"])  # 1, 50.0
+print(summary["logs"][0]["cache_hit"])  # True -- the most recent call, a hit
+```
+
+The dashboard's "Cache Hit Rate" tile and each row's "Cache Hit" badge in the
+audit trail table reflect this same data. `/api/metrics/prometheus` exposes
+it as `llmrivotril_cache_hits_total`/`llmrivotril_cache_hit_rate`.
+
 ## Benchmark
 
 Run the built-in red-team benchmark with deterministic mocks (no API key, no cost):

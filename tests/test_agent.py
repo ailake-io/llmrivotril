@@ -538,6 +538,70 @@ def test_agent_uses_in_memory_cache():
     assert provider._complete_mock.call_count == 1
 
 
+def test_cache_hit_is_reported_in_metrics():
+    """A cache hit is only distinguishable from a miss by its cache_hit flag.
+
+    The "tokens" figure is a local tiktoken estimate over prompt+response
+    text, identical on a hit or a miss for the same repeated prompt -- only
+    this flag (and latency) reveal whether the provider was actually called
+    again.
+    """
+    from llmrivotril import InMemoryCache
+    from llmrivotril.metrics import MetricsCollector
+
+    metrics = MetricsCollector()
+    cache = InMemoryCache()
+    agent, provider = _make_agent(cache=cache, metrics=metrics)
+    provider._complete_mock.return_value = ProviderResponse(content="cached")
+
+    agent.run("hi")
+    agent.memory.clear()
+    agent.run("hi")
+
+    assert metrics.cache_hits == 1
+    assert metrics.get_summary()["cache_hit_rate"] == 50.0
+    logs = metrics.get_summary()["logs"]
+    assert logs[0]["cache_hit"] is True  # most recent call, the hit
+    assert logs[1]["cache_hit"] is False  # the original miss
+
+
+def test_cache_miss_without_cache_configured_reports_false():
+    from llmrivotril.metrics import MetricsCollector
+
+    metrics = MetricsCollector()
+    agent, provider = _make_agent(metrics=metrics)
+    provider._complete_mock.return_value = ProviderResponse(content="hi there")
+
+    agent.run("hi")
+
+    assert metrics.cache_hits == 0
+    assert metrics.get_summary()["logs"][0]["cache_hit"] is False
+
+
+def test_guardrail_block_does_not_leak_a_stale_cache_hit_flag():
+    """A blocked run must report cache_hit=False even if a prior run on the
+    same agent instance was a real cache hit -- _call_llm never runs for a
+    blocked prompt, so the flag must be reset per-run, not left stale."""
+    from llmrivotril import Guardrail, InMemoryCache
+    from llmrivotril.metrics import MetricsCollector
+
+    metrics = MetricsCollector()
+    cache = InMemoryCache()
+    agent, provider = _make_agent(
+        cache=cache, metrics=metrics, guardrails=[Guardrail(name="g", disallowed_keywords=["bad"])]
+    )
+    provider._complete_mock.return_value = ProviderResponse(content="cached")
+
+    agent.run("hi")
+    agent.memory.clear()
+    agent.run("hi")  # real cache hit, sets _last_cache_hit = True
+
+    with pytest.raises(GuardrailViolationError):
+        agent.run("this is bad")
+
+    assert metrics.get_summary()["logs"][0]["cache_hit"] is False
+
+
 def test_agent_uses_disk_cache_via_env(tmp_path, monkeypatch):
     cache_path = tmp_path / "agent-cache.sqlite3"
     monkeypatch.setenv("RIVOTRIL_CACHE_PATH", str(cache_path))

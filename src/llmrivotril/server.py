@@ -207,6 +207,18 @@ async def get_prometheus_metrics() -> str:
         "counter",
     )
     output += _format_prometheus_line(
+        "llmrivotril_cache_hits_total",
+        summary["cache_hits"],
+        "Total number of requests served from cache",
+        "counter",
+    )
+    output += _format_prometheus_line(
+        "llmrivotril_cache_hit_rate",
+        summary["cache_hit_rate"],
+        "Percentage of requests served from cache",
+        "gauge",
+    )
+    output += _format_prometheus_line(
         "llmrivotril_success_rate",
         summary["success_rate"],
         "Percentage of successful requests",

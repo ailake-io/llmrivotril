@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `MetricsCollector` now tracks whether each request was a cache hit:
+  `cache_hits`/`cache_hit_rate` in `get_summary()`, and a `cache_hit` boolean
+  on each per-request log entry. Previously the only way to tell a cache hit
+  from a miss was inferring it from latency -- the `tokens` figure is a
+  local tiktoken estimate over prompt+response text, identical either way.
+  The dashboard shows a "Cache Hit Rate" tile and a "Cache Hit" badge per
+  row; `/api/metrics/prometheus` exposes
+  `llmrivotril_cache_hits_total`/`llmrivotril_cache_hit_rate`. See
+  `docs/observability.md`.
+
 ## [0.1.2] - 2026-09-30
 
 ### Changed

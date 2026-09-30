@@ -120,6 +120,10 @@ class RivotrilAgent:
         self.max_prompt_tokens = _resolve(max_prompt_tokens, "max_prompt_tokens", None)
         self._session_tokens_used = 0
         self._session_tokens_lock = Lock()
+        # Set by _call_llm/_call_llm_async on every invocation, reset at the
+        # start of run()/run_async() -- reported to metrics so a cache hit is
+        # visible directly instead of only inferable from latency.
+        self._last_cache_hit = False
 
         plugin_guardrails, plugin_verifiers = load_plugins(plugins)
         self.guardrails = (guardrails or []) + plugin_guardrails
@@ -611,7 +615,9 @@ class RivotrilAgent:
         cached = self._cache_lookup(messages, response_model, tools)
         if cached is not None:
             logger.debug("Cache hit for model %r", self.model)
+            self._last_cache_hit = True
             return cached
+        self._last_cache_hit = False
 
         if self.rate_limiter is not None:
             self.rate_limiter.acquire()
@@ -636,7 +642,9 @@ class RivotrilAgent:
         cached = self._cache_lookup(messages, response_model, tools)
         if cached is not None:
             logger.debug("Cache hit for model %r", self.model)
+            self._last_cache_hit = True
             return cached
+        self._last_cache_hit = False
 
         if self.async_rate_limiter is not None:
             await self.async_rate_limiter.acquire()
@@ -749,6 +757,7 @@ class RivotrilAgent:
         cost_usd: float | None = None
         tokens = self._check_token_budget(prompt, context_sources)
         tool_registry = ToolRegistry(tools) if tools is not None else None
+        self._last_cache_hit = False
 
         prompt = self._redact(prompt)
 
@@ -821,6 +830,7 @@ class RivotrilAgent:
                 hallucination_blocked=hallucination_blocked,
                 error=error_msg,
                 cost_usd=cost_usd,
+                cache_hit=self._last_cache_hit,
             )
 
     async def run_async(
@@ -839,6 +849,7 @@ class RivotrilAgent:
         cost_usd: float | None = None
         tokens = self._check_token_budget(prompt, context_sources)
         tool_registry = ToolRegistry(tools) if tools is not None else None
+        self._last_cache_hit = False
 
         prompt = self._redact(prompt)
 
@@ -911,6 +922,7 @@ class RivotrilAgent:
                 hallucination_blocked=hallucination_blocked,
                 error=error_msg,
                 cost_usd=cost_usd,
+                cache_hit=self._last_cache_hit,
             )
 
     @staticmethod

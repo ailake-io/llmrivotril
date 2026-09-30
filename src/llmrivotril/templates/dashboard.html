@@ -14,6 +14,7 @@
             document.getElementById('tokens').innerText = data.total_tokens_consumed;
             document.getElementById('latency').innerText = data.avg_latency + 's';
             document.getElementById('success').innerText = data.success_rate + '%';
+            document.getElementById('cache-rate').innerText = data.cache_hit_rate + '%';
 
             const rows = document.createDocumentFragment();
             data.logs.forEach(log => {
@@ -36,6 +37,9 @@
                 } else if (log.hallucination_blocked) {
                     status.className += ' bg-yellow-100 text-yellow-800';
                     status.textContent = 'Hallucination Block';
+                } else if (log.cache_hit) {
+                    status.className += ' bg-blue-100 text-blue-800';
+                    status.textContent = 'Cache Hit';
                 } else {
                     status.className += ' bg-green-100 text-green-800';
                 }
@@ -64,7 +68,7 @@
             <span class="text-xs bg-indigo-900 text-indigo-200 px-3 py-1 rounded-full border border-indigo-700">Active Monitoring</span>
         </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-7 gap-4 mb-8">
             <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
                 <p class="text-gray-400 text-xs uppercase">Total Requests</p>
                 <p id="req-total" class="text-2xl font-bold mt-1">0</p>
@@ -88,6 +92,10 @@
             <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
                 <p class="text-gray-400 text-xs uppercase">Success Rate</p>
                 <p id="success" class="text-2xl font-bold text-green-400 mt-1">100%</p>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                <p class="text-gray-400 text-xs uppercase">Cache Hit Rate</p>
+                <p id="cache-rate" class="text-2xl font-bold text-blue-400 mt-1">0%</p>
             </div>
         </div>
 
