@@ -10,7 +10,7 @@ from llmrivotril import (
 
 
 def test_public_api_exposes_extension_points_and_version():
-    assert __version__ == "0.1.1"
+    assert __version__ == "0.1.2"
     assert RAGPipeline is not None
     assert BaseLoader.__name__ == "BaseLoader"
     assert BaseChunker.__name__ == "BaseChunker"

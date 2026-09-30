@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-30
+
 ### Changed
 
 - Rewrote the AG2 integration adapter to target **current AG2 1.x**
@@ -22,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructs, not plain dicts). Verified end-to-end against a real provider
   with `ag2==1.1.1`. Tool-calling and structured output are not implemented
   for this version; see `docs/integrations.md`.
+
+### Fixed
+
+- CI now runs on pull requests targeting `develop`, not just `main` --
+  PRs into `develop` previously got zero CI coverage.
 
 ## [0.1.1] - 2026-09-30
 
