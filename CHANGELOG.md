@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- Documented that the AG2/pyautogen integration adapter requires `ag2<1.0`
-  specifically -- `ag2>=1.0` and the current `pyautogen` (now a proxy for
-  Microsoft's separate `autogen-agentchat`/`autogen-core` rewrite) both
-  dropped the `AssistantAgent`/`register_model_client` API this adapter
-  targets. Found while verifying all four framework adapters end-to-end
-  against a real provider; CrewAI, LangChain, and Google ADK confirmed
-  working as-is. Pinned `ag2==0.14.0` in `.github/constraints-runtime.txt`.
+- Rewrote the AG2 integration adapter to target **current AG2 1.x**
+  (`llmrivotril[autogen]`, `pip install "llmrivotril[autogen]"`) instead of
+  the pre-1.0 `AssistantAgent`/`register_model_client` API, which no longer
+  exists in any currently-installable package (`ag2>=1.0` replaced its
+  entire API; `pyautogen` is now a proxy for Microsoft's separate
+  `autogen-agentchat`/`autogen-core` rewrite). `RivotrilModelConfig`/
+  `RivotrilLLMClient` implement AG2 1.x's `ModelConfig`/`LLMClient`
+  protocols via its new `Agent(config=...)` extension point. Unlike the
+  pre-1.0 adapter, this needs `ag2` actually importable (AG2 1.x's
+  `ModelMessage`/`ModelResponse` are real event classes this module
+  constructs, not plain dicts). Verified end-to-end against a real provider
+  with `ag2==1.1.1`. Tool-calling and structured output are not implemented
+  for this version; see `docs/integrations.md`.
 
 ## [0.1.1] - 2026-09-30
 

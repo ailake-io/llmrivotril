@@ -405,3 +405,40 @@ Lição: "não verificado contra multi-agente real" (nota anterior) não é a
 o suficiente pra que mesmo uma verificação recente vire obsoleta em
 semanas; vale reverificar versões de dependência de tempos em tempos, não
 só na primeira implementação.
+
+## Reescrita do adapter AutoGen pra AG2 1.x -- 30/09/2026
+
+A nota anterior ("Não corrigido, é limitação do ecossistema") virou obsoleta
+rápido: em vez de só pinar `ag2<1.0` e seguir em frente, reescrito o adapter
+(`llmrivotril.integrations.autogen`) pra mirar o **AG2 1.x atual**.
+
+Investigação do código-fonte real instalado (não só docs, que não
+documentavam o mecanismo de extensão) achou o ponto de extensão novo:
+`Agent(config=ModelConfig)`, onde `ModelConfig` é um `Protocol` estrutural
+(`provider`/`model`/`copy()`/`create() -> LLMClient`) e `LLMClient` é outro
+`Protocol` async (`__call__(messages: Sequence[BaseEvent], context, *,
+tools, response_schema, serializer) -> ModelResponse`). Diferença chave do
+mecanismo pré-1.0: `messages` agora é uma sequência de **objetos de evento
+reais** (`HumanMessage`, `ModelMessage`, etc.), não dicts -- o adapter usa o
+próprio helper `render_for_prompt()` do AG2 pra extrair texto de cada
+evento antes de achatar, reaproveitando o `flatten_messages()` já usado
+pelos outros 3 adapters.
+
+Isso elimina a característica "zero dependência" que o adapter pré-1.0
+tinha (protocolo puro, satisfeito por duck typing sem nunca importar
+`ag2`) -- `ModelMessage`/`ModelResponse` no 1.x são classes de evento reais
+que precisam ser instanciadas de verdade, então agora existe
+`llmrivotril[autogen]` como extra.
+
+Verificado de ponta a ponta contra API real (OpenRouter,
+`openai/gpt-4o-mini`) com `ag2==1.1.1` instalado de verdade, num venv
+isolado. mypy limpo nos dois ambientes (com e sem `ag2` instalado) sem
+precisar do override de `disable_error_code=["misc"]` que os outros 3
+adapters precisam -- este não faz subclass de nada (duck typing puro nos
+dois protocolos), então `disallow_subclassing_any` nunca entra em jogo
+aqui.
+
+Não implementado nesta reescrita: tool-calling e saída estruturada (AG2
+passa `tools=`/`response_schema=` pra chamada do `LLMClient`, mas o adapter
+ignora -- degrada pra "modelo não chamou tool", não quebra) e streaming.
+Documentado como gap conhecido, não bug.
