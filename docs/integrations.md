@@ -16,7 +16,7 @@ frameworks are core dependencies.
 | Framework | Adapter | Interface implemented | Extra |
 |---|---|---|---|
 | CrewAI | `llmrivotril.integrations.crewai.CrewAILLM` | `BaseLLM.call()` | `llmrivotril[crewai]` |
-| AG2 / pyautogen | `llmrivotril.integrations.autogen.RivotrilModelClient` | `ModelClient` protocol | none from llmrivotril, but needs `ag2<1.0` installed yourself -- see below |
+| AG2 (1.x) | `llmrivotril.integrations.autogen.RivotrilModelConfig` | `ModelConfig`/`LLMClient` protocols | `llmrivotril[autogen]` |
 | LangChain / LangGraph | `llmrivotril.integrations.langchain.RivotrilChatModel` | `BaseChatModel._generate()` | `llmrivotril[langchain]` |
 | Google ADK | `llmrivotril.integrations.adk.RivotrilLlm` | `BaseLlm.generate_content_async()` | `llmrivotril[adk]` |
 
@@ -26,13 +26,14 @@ Install one, several, or all:
 pip install "llmrivotril[crewai]"
 pip install "llmrivotril[langchain]"
 pip install "llmrivotril[adk]"
-pip install "llmrivotril[integrations]"  # all three + no-extra AutoGen support
+pip install "llmrivotril[autogen]"
+pip install "llmrivotril[integrations]"  # all four
 ```
 
 ## Why message history is flattened
 
 Every one of these frameworks owns and resends the *entire* conversation
-history on every call (CrewAI's task context, AutoGen's `params["messages"]`,
+history on every call (CrewAI's task context, AG2's event sequence,
 LangChain's message list, ADK's `llm_request.contents`). `RivotrilAgent.run()`
 takes a single prompt string and manages its own continuity only through an
 optional `memory=` store.
@@ -72,42 +73,52 @@ Streaming is available through CrewAI's `stream_events()` protocol when the
 LLM is configured with `stream=True`. Stop sequences remain unsupported
 (`supports_stop_words()` reports `False` instead of silently ignoring them).
 
-## AG2 / pyautogen
+## AG2 (1.x)
 
-> **Requires `ag2<1.0` specifically -- `pip install ag2` today gets 1.x and
-> will NOT work with this adapter.** Both AutoGen-lineage packages on PyPI
-> moved on since this adapter was written: `ag2>=1.0` replaced its entire API
-> (`Agent`/`Task`/`Toolkit`/`Context` -- no `AssistantAgent`, no
-> `register_model_client`), and `pyautogen` is now just a proxy package for
-> Microsoft's separate `autogen-agentchat`/`autogen-core` rewrite (the
-> `ChatCompletionClient` interface mentioned below, which this adapter also
-> doesn't target). Confirmed working against `ag2==0.14.0` specifically;
-> `pip install "ag2<1.0"` to get the last release with the classic API. No
-> extra of llmrivotril's own installs this for you (see below).
+AG2 (formerly AutoGen) rewrote its entire API in the 1.0 line -- the old
+`AssistantAgent`/`register_model_client` mechanism (what this adapter used to
+target) doesn't exist in any currently-installable package: `ag2>=1.0`
+replaced it with `Agent`/`Task`/`Toolkit`/`Context`, and `pyautogen` is now
+just a proxy for Microsoft's separate `autogen-agentchat`/`autogen-core`
+rewrite (a different `ChatCompletionClient` interface this adapter also
+doesn't target). This adapter targets **current AG2 1.x** via its
+`Agent(config=...)` extension point.
 
-No extra install: `ModelClient` is a structural `Protocol`, satisfied by
-matching methods rather than a subclass, so this adapter has zero dependency
-on the `ag2`/`pyautogen` package itself -- but you still need `ag2<1.0`
-installed yourself to actually run it, per the warning above.
+Unlike the CrewAI/LangChain/ADK adapters, this one needs `ag2` actually
+importable at import time -- AG2 1.x's `ModelMessage`/`ModelResponse` are
+real event classes this module constructs directly, not plain dicts, so
+there's no way to stay import-free the way the pre-1.0 protocol-only version
+of this adapter could. Requires `pip install "llmrivotril[autogen]"`.
 
 ```python
-import autogen
+import ag2
 from llmrivotril import RivotrilAgent
-from llmrivotril.integrations.autogen import RivotrilModelClient
+from llmrivotril.integrations.autogen import RivotrilModelConfig
 
 worker = RivotrilAgent(model="gpt-4o-mini", api_key="...")
-llm_config = {
-    "config_list": [{"model": worker.model, "model_client_cls": "RivotrilModelClient"}],
-}
-assistant = autogen.AssistantAgent("assistant", llm_config=llm_config)
-assistant.register_model_client(model_client_cls=RivotrilModelClient, agent=worker)
+agent = ag2.Agent("worker", config=RivotrilModelConfig(worker))
+reply = await agent.ask("Hello")
+print(await reply.content())
 ```
 
-Targets the AG2/pyautogen `register_model_client` mechanism specifically --
-**not** compatible with the newer `autogen-core`/AgentChat `ChatCompletionClient`
-interface, which is async and has a different, richer protocol. Cost/usage
-tracking is left at zero/empty (`llmrivotril` already tracks cost and tokens
-through its own `metrics`/`track_costs`).
+`RivotrilModelConfig` implements AG2's `ModelConfig` protocol (`provider`,
+`model`, `copy()`, `create()`); `create()` returns a `RivotrilLLMClient`
+implementing AG2's `LLMClient` protocol, which renders AG2's own event
+objects with its `render_for_prompt()` helper, flattens them, and calls
+`RivotrilAgent.run_async()`. `provider` is informational routing metadata
+only (best-effort mapped from the agent's actual provider, defaulting to
+`ModelProvider.OPENAI`) -- guardrails/PII/cache run regardless of what it
+says.
+
+Not implemented: tool-calling and structured output. AG2 passes `tools=`/
+`response_schema=` into the `LLMClient` call, but this adapter ignores them
+and always returns a plain-text response -- AG2 treats that the same as "the
+model chose not to call a tool", not as an error, so this degrades safely
+rather than breaking. Streaming is not implemented either.
+
+Need the classic pre-1.0 `AssistantAgent`/`register_model_client` API
+instead? Pin `ag2<1.0` and see this project's git history before this
+adapter was rewritten -- not maintained going forward.
 
 ## LangChain / LangGraph
 

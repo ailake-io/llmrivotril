@@ -65,27 +65,90 @@ class TestCrewAI:
 
 
 class TestAutoGen:
-    def test_create_flattens_messages_and_wraps_response(self) -> None:
-        from llmrivotril.integrations.autogen import RivotrilModelClient
+    """Targets AG2 1.x's Agent(config=...) extension point.
+
+    AG2<1.0's AssistantAgent/register_model_client mechanism (what this
+    adapter used to target) no longer exists in any currently-installable
+    package -- see docs/integrations.md.
+    """
+
+    @pytest.mark.asyncio
+    async def test_llm_client_flattens_messages_and_wraps_response(self) -> None:
+        pytest.importorskip("ag2")
+        from ag2.events import HumanMessage
+
+        from llmrivotril.integrations.autogen import RivotrilLLMClient
 
         agent = _fake_agent()
-        client = RivotrilModelClient(config={}, agent=agent)
 
-        response = client.create({"messages": [{"role": "user", "content": "hi"}]})
+        async def fake_run_async(prompt: str) -> str:
+            fake_run_async.seen_prompt = prompt  # type: ignore[attr-defined]
+            return "hello from rivotril"
 
-        assert response.choices[0].message.content == "hello from rivotril"
-        assert response.model == "gpt-4o-mini"
-        assert "User: hi" in agent.run.call_args.args[0]
+        agent.run_async = fake_run_async
+        client = RivotrilLLMClient(agent)
 
-    def test_message_retrieval_cost_and_usage(self) -> None:
-        from llmrivotril.integrations.autogen import RivotrilModelClient
+        response = await client(
+            [HumanMessage("hi")],
+            context=None,
+            tools=[],
+            response_schema=None,
+            serializer=None,
+        )
 
-        client = RivotrilModelClient(config={}, agent=_fake_agent())
-        response = client.create({"messages": [{"role": "user", "content": "hi"}]})
+        assert response.content == "hello from rivotril"
+        assert "hi" in fake_run_async.seen_prompt  # type: ignore[attr-defined]
 
-        assert client.message_retrieval(response) == ["hello from rivotril"]
-        assert client.cost(response) == 0.0
-        assert client.get_usage(response) == {}
+    def test_model_config_exposes_provider_and_model(self) -> None:
+        pytest.importorskip("ag2")
+        from ag2.config.config import ModelProvider
+
+        from llmrivotril.integrations.autogen import RivotrilModelConfig
+
+        agent = _fake_agent()
+        agent.provider = MagicMock()
+        agent.provider.name = "openai"
+        config = RivotrilModelConfig(agent)
+
+        assert config.model == "gpt-4o-mini"
+        assert config.provider == ModelProvider.OPENAI
+        copied = config.copy()
+        assert isinstance(copied, RivotrilModelConfig)
+        assert copied.agent is agent
+
+    def test_model_config_unknown_provider_falls_back_to_openai(self) -> None:
+        pytest.importorskip("ag2")
+        from ag2.config.config import ModelProvider
+
+        from llmrivotril.integrations.autogen import RivotrilModelConfig
+
+        agent = _fake_agent()
+        agent.provider = MagicMock()
+        agent.provider.name = "cohere"  # not in AG2's ModelProvider enum
+        config = RivotrilModelConfig(agent)
+
+        assert config.provider == ModelProvider.OPENAI
+
+    @pytest.mark.asyncio
+    async def test_model_config_create_returns_working_client(self) -> None:
+        pytest.importorskip("ag2")
+        from ag2.events import HumanMessage
+
+        from llmrivotril.integrations.autogen import RivotrilLLMClient, RivotrilModelConfig
+
+        agent = _fake_agent()
+
+        async def fake_run_async(prompt: str) -> str:
+            return "hello from rivotril"
+
+        agent.run_async = fake_run_async
+        client = RivotrilModelConfig(agent).create()
+
+        assert isinstance(client, RivotrilLLMClient)
+        response = await client(
+            [HumanMessage("hi")], context=None, tools=[], response_schema=None, serializer=None
+        )
+        assert response.content == "hello from rivotril"
 
 
 class TestLangChain:

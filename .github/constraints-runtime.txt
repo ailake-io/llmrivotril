@@ -1,12 +1,7 @@
 # Runtime/provider versions validated together in the Python 3.13 integration
 # venv. Use this file as a reproducible baseline; downstream applications may
 # maintain a narrower set for the providers they actually enable.
-#
-# ag2 is pinned below 1.0 deliberately, not just "latest validated": ag2>=1.0
-# and the current pyautogen (now a proxy for autogen-agentchat) both dropped
-# the AssistantAgent/register_model_client API this project's AutoGen adapter
-# targets. See docs/integrations.md's AG2/pyautogen section.
-ag2==0.14.0
+ag2==1.1.1
 anthropic==1.9.0
 boto3==1.43.105
 botocore==1.43.105

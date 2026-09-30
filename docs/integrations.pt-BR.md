@@ -16,7 +16,7 @@ frameworks é dependência do núcleo.
 | Framework | Adapter | Interface implementada | Extra |
 |---|---|---|---|
 | CrewAI | `llmrivotril.integrations.crewai.CrewAILLM` | `BaseLLM.call()` | `llmrivotril[crewai]` |
-| AG2 / pyautogen | `llmrivotril.integrations.autogen.RivotrilModelClient` | protocolo `ModelClient` | nenhum do llmrivotril, mas precisa de `ag2<1.0` instalado por você -- ver abaixo |
+| AG2 (1.x) | `llmrivotril.integrations.autogen.RivotrilModelConfig` | protocolos `ModelConfig`/`LLMClient` | `llmrivotril[autogen]` |
 | LangChain / LangGraph | `llmrivotril.integrations.langchain.RivotrilChatModel` | `BaseChatModel._generate()` | `llmrivotril[langchain]` |
 | Google ADK | `llmrivotril.integrations.adk.RivotrilLlm` | `BaseLlm.generate_content_async()` | `llmrivotril[adk]` |
 
@@ -26,13 +26,14 @@ Instale um, vários, ou todos:
 pip install "llmrivotril[crewai]"
 pip install "llmrivotril[langchain]"
 pip install "llmrivotril[adk]"
-pip install "llmrivotril[integrations]"  # os três + suporte a AutoGen sem extra
+pip install "llmrivotril[autogen]"
+pip install "llmrivotril[integrations]"  # os quatro
 ```
 
 ## Por que o histórico de mensagens é achatado (flattened)
 
 Cada um desses frameworks possui e reenvia o histórico *completo* da conversa
-em toda chamada (o contexto de task do CrewAI, o `params["messages"]` do AutoGen,
+em toda chamada (o contexto de task do CrewAI, a sequência de eventos do AG2,
 a lista de mensagens do LangChain, o `llm_request.contents` do ADK). `RivotrilAgent.run()`
 recebe uma única string de prompt e só gerencia sua própria continuidade através de um
 store `memory=` opcional.
@@ -72,44 +73,54 @@ Streaming está disponível pelo protocolo `stream_events()` do CrewAI quando o
 LLM é configurado com `stream=True`. Sequências `stop` continuam sem suporte
 (`supports_stop_words()` retorna `False` em vez de ignorá-las silenciosamente).
 
-## AG2 / pyautogen
+## AG2 (1.x)
 
-> **Precisa especificamente de `ag2<1.0` -- `pip install ag2` hoje instala a
-> 1.x e NÃO funciona com este adapter.** Os dois pacotes da linhagem AutoGen
-> no PyPI mudaram desde que este adapter foi escrito: `ag2>=1.0` reescreveu
-> a API inteira (`Agent`/`Task`/`Toolkit`/`Context` -- sem `AssistantAgent`,
-> sem `register_model_client`), e `pyautogen` agora é só um proxy pro
-> `autogen-agentchat`/`autogen-core` (a reescrita separada da Microsoft, a
-> interface `ChatCompletionClient` mencionada abaixo, que este adapter também
-> não tem como alvo). Confirmado funcionando contra `ag2==0.14.0`
-> especificamente; `pip install "ag2<1.0"` pra pegar o último release com a
-> API clássica. Nenhum extra do llmrivotril instala isso pra você (ver
-> abaixo).
+O AG2 (antigo AutoGen) reescreveu a API inteira na linha 1.0 -- o mecanismo
+antigo `AssistantAgent`/`register_model_client` (que este adapter usava)
+não existe em nenhum pacote instalável hoje: `ag2>=1.0` substituiu por
+`Agent`/`Task`/`Toolkit`/`Context`, e `pyautogen` agora é só um proxy pra
+reescrita separada `autogen-agentchat`/`autogen-core` da Microsoft (uma
+interface `ChatCompletionClient` diferente, que este adapter também não tem
+como alvo). Este adapter é direcionado ao **AG2 1.x atual**, via o ponto de
+extensão `Agent(config=...)`.
 
-Sem instalação extra do llmrivotril: `ModelClient` é um `Protocol` estrutural,
-satisfeito por métodos correspondentes em vez de uma subclasse, então este
-adapter não tem dependência nenhuma do pacote `ag2`/`pyautogen` em si -- mas
-você ainda precisa instalar `ag2<1.0` por conta própria pra rodar de verdade,
-conforme o aviso acima.
+Diferente dos adapters CrewAI/LangChain/ADK, este precisa do `ag2`
+realmente importável em tempo de import -- `ModelMessage`/`ModelResponse`
+do AG2 1.x são classes de evento de verdade que este módulo constrói
+diretamente, não dicts simples, então não tem como ficar livre de import
+como a versão pré-1.0, só-protocolo, deste adapter conseguia. Precisa de
+`pip install "llmrivotril[autogen]"`.
 
 ```python
-import autogen
+import ag2
 from llmrivotril import RivotrilAgent
-from llmrivotril.integrations.autogen import RivotrilModelClient
+from llmrivotril.integrations.autogen import RivotrilModelConfig
 
 worker = RivotrilAgent(model="gpt-4o-mini", api_key="...")
-llm_config = {
-    "config_list": [{"model": worker.model, "model_client_cls": "RivotrilModelClient"}],
-}
-assistant = autogen.AssistantAgent("assistant", llm_config=llm_config)
-assistant.register_model_client(model_client_cls=RivotrilModelClient, agent=worker)
+agent = ag2.Agent("worker", config=RivotrilModelConfig(worker))
+reply = await agent.ask("Olá")
+print(await reply.content())
 ```
 
-Direcionado especificamente ao mecanismo `register_model_client` do AG2/pyautogen --
-**não** compatível com a interface `ChatCompletionClient` mais nova do
-`autogen-core`/AgentChat, que é assíncrona e tem um protocolo diferente e mais rico.
-O rastreamento de custo/uso fica zerado/vazio (o `llmrivotril` já rastreia custo e tokens
-através do próprio `metrics`/`track_costs`).
+`RivotrilModelConfig` implementa o protocolo `ModelConfig` do AG2
+(`provider`, `model`, `copy()`, `create()`); `create()` retorna um
+`RivotrilLLMClient` implementando o protocolo `LLMClient` do AG2, que
+renderiza os objetos de evento do próprio AG2 com o helper
+`render_for_prompt()` dele, achata tudo e chama
+`RivotrilAgent.run_async()`. `provider` é só metadado informativo de
+roteamento (mapeado de melhor esforço a partir do provider real do agente,
+com fallback pra `ModelProvider.OPENAI`) -- guardrails/PII/cache rodam
+independente do que ele diz.
+
+Não implementado: tool-calling e saída estruturada. O AG2 passa
+`tools=`/`response_schema=` pra chamada do `LLMClient`, mas este adapter
+ignora e sempre devolve uma resposta em texto puro -- o AG2 trata isso como
+"o modelo escolheu não chamar nenhuma tool", não como erro, então degrada de
+forma segura em vez de quebrar. Streaming também não está implementado.
+
+Precisa da API clássica pré-1.0 `AssistantAgent`/`register_model_client`?
+Fixe `ag2<1.0` e veja o histórico git deste projeto de antes desta reescrita
+do adapter -- não mantido daqui pra frente.
 
 ## LangChain / LangGraph
 

@@ -98,10 +98,14 @@ langchain = [
 adk = [
     "google-adk>=1.0.0",
 ]
+autogen = [
+    "ag2>=1.0.0,<2.0.0",
+]
 integrations = [
     "crewai>=1.0.0,<2.0.0",
     "langchain-core>=0.3.0",
     "google-adk>=1.0.0",
+    "ag2>=1.0.0,<2.0.0",
 ]
 ci = [
     "pytest>=7.0.0",
@@ -135,6 +139,7 @@ dev = [
     "crewai>=1.0.0,<2.0.0",
     "langchain-core>=0.3.0",
     "google-adk>=1.0.0",
+    "ag2>=1.0.0,<2.0.0",
 ]
 
 [project.scripts]
@@ -213,6 +218,7 @@ module = [
     "pinecone.*",
     "crewai.*",
     "langchain_core.*",
+    "ag2.*",
 ]
 ignore_missing_imports = true
 
