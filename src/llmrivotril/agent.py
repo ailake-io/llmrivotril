@@ -652,6 +652,29 @@ class RivotrilAgent:
         self._cache_store(messages, response_model, response, tools)
         return response
 
+    @staticmethod
+    def _assistant_tool_call_message(calls: list[Any]) -> dict[str, Any]:
+        """Build the assistant message that requested ``calls``.
+
+        OpenAI-compatible APIs require the assistant's own ``tool_calls``
+        message to appear in the conversation *before* any ``role: "tool"``
+        result messages that respond to it -- without this, a real provider
+        rejects the follow-up request with "messages with role 'tool' must
+        be a response to a preceding message with 'tool_calls'."
+        """
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+                }
+                for call in calls
+            ],
+        }
+
     def _handle_tool_calls(
         self,
         response: Any,
@@ -665,6 +688,7 @@ class RivotrilAgent:
             if not calls:
                 break
 
+            messages.append(self._assistant_tool_call_message(calls))
             for call in calls:
                 result = tool_registry.execute(call)
                 messages.append(
@@ -693,6 +717,7 @@ class RivotrilAgent:
             if not calls:
                 break
 
+            messages.append(self._assistant_tool_call_message(calls))
             for call in calls:
                 result = tool_registry.execute(call)
                 messages.append(

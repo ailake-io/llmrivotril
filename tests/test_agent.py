@@ -339,6 +339,45 @@ async def test_agent_run_stream_async_redacts_pii_in_memory():
     assert "john.doe@example.com" not in str(agent.memory.get_context())
 
 
+def test_agent_run_with_tools_includes_assistant_tool_call_message():
+    """The follow-up request must include the assistant's own tool_calls message.
+
+    OpenAI-compatible APIs reject a `role: "tool"` message that isn't preceded
+    by an assistant message carrying the matching `tool_calls` -- a real
+    provider enforces this, but a mocked `complete()` doesn't, so this is the
+    one test in the suite that inspects the actual messages sent on the
+    follow-up call instead of only the final answer.
+    """
+
+    def get_weather(city: str) -> str:
+        return f"sunny in {city}"
+
+    agent, provider = _make_agent()
+    provider._complete_mock.side_effect = [
+        ProviderResponse(
+            content=None,
+            tool_calls=[{"id": "call_1", "name": "get_weather", "arguments": {"city": "SP"}}],
+        ),
+        ProviderResponse(content="It's sunny in SP."),
+    ]
+
+    result = agent.run("What's the weather in SP?", tools=[get_weather])
+
+    assert result == "It's sunny in SP."
+    follow_up_messages = provider._complete_mock.call_args_list[1].kwargs["messages"]
+    assistant_index = next(
+        i
+        for i, m in enumerate(follow_up_messages)
+        if m.get("role") == "assistant" and "tool_calls" in m
+    )
+    tool_index = next(i for i, m in enumerate(follow_up_messages) if m.get("role") == "tool")
+    assert assistant_index < tool_index
+    assistant_message = follow_up_messages[assistant_index]
+    assert assistant_message["tool_calls"][0]["id"] == "call_1"
+    assert assistant_message["tool_calls"][0]["function"]["name"] == "get_weather"
+    assert follow_up_messages[tool_index]["tool_call_id"] == "call_1"
+
+
 def test_agent_run_stream_answers_directly_still_stream_token_by_token():
     agent, provider = _make_agent()
     provider._stream_chunks = ["Hel", "lo!"]

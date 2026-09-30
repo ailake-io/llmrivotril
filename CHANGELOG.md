@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Tool-calling (`run`/`run_async`/`run_stream`/`run_stream_async` with
+  `tools=`) sent a follow-up request missing the assistant's own
+  `tool_calls` message before the `role: "tool"` result messages -- real
+  OpenAI-compatible APIs reject this ("messages with role 'tool' must be a
+  response to a preceding message with 'tool_calls'"), but every existing
+  test mocked `complete()` directly and never validated message ordering, so
+  it went uncaught until a real end-to-end smoke test against a live
+  provider (OpenRouter) right after the 0.1.0 PyPI release.
+- `MetricsCollector`/`global_metrics` were importable from
+  `llmrivotril.metrics` but not from the top-level `llmrivotril` package,
+  even though `RivotrilAgent(metrics=...)` documents them as the expected
+  argument type. Found during the same smoke test.
+
 ## [0.1.0] - 2026-09-29
 
 ### Added

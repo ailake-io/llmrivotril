@@ -9,6 +9,7 @@ from .exceptions import (
 )
 from .guardrails import Guardrail
 from .memory import MemoryStore
+from .metrics import MetricsCollector, global_metrics
 from .moderation import ModerationGuardrail
 from .pii import PIIRedactor
 from .plugins import discover_plugins, load_plugins
@@ -48,6 +49,8 @@ __all__ = [
     "Guardrail",
     "ModerationGuardrail",
     "MemoryStore",
+    "MetricsCollector",
+    "global_metrics",
     "BaseCache",
     "InMemoryCache",
     "DiskCache",
