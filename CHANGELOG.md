@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-30
+
 ### Fixed
 
 - Tool-calling (`run`/`run_async`/`run_stream`/`run_stream_async` with
