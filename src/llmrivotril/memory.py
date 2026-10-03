@@ -46,6 +46,7 @@ class MemoryStore:
         count_tokens: Callable[[str], int] | None = None,
         summarize: Callable[[str], str] | None = None,
         summarize_trigger_turns: int = 20,
+        select: Callable[[list[dict[str, str]], str], list[dict[str, str]]] | None = None,
     ) -> None:
         if retention_window <= 0:
             raise ValueError("retention_window must be positive")
@@ -54,6 +55,7 @@ class MemoryStore:
         self.count_tokens = count_tokens or _default_count_tokens
         self.summarize = summarize
         self.summarize_trigger_turns = summarize_trigger_turns
+        self.select = select
         self.history: list[dict[str, str]] = []
         self._summary: str | None = None
         self.auto_save_path = auto_save_path
@@ -121,10 +123,17 @@ class MemoryStore:
         with self._lock:
             self._summary = f"{self._summary}\n{new_summary}" if self._summary else new_summary
 
-    def get_context(self) -> list[dict[str, str]]:
+    def get_context(self, query: str | None = None) -> list[dict[str, str]]:
+        """Return history (+ summary). With ``select`` and ``query``, turns not
+        relevant to ``query`` are dropped from this prompt (not from storage)."""
         with self._lock:
             turns = [turn.copy() for turn in self.history]
             summary = self._summary
+        if self.select is not None and query and turns:
+            try:
+                turns = self.select(turns, query)
+            except Exception:
+                logger.warning("Memory select failed; using full history.", exc_info=True)
         if summary:
             summary_turn = {
                 "role": "system",

@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Any, cast
 
@@ -91,6 +92,7 @@ class RivotrilAgent:
         schema_repair_attempts: Any = _UNSET,
         redact_pii: Any = _UNSET,
         pii_redactor: PIIRedactor | None = None,
+        parallel_guardrails: bool = False,
     ) -> None:
         config = load_config()
 
@@ -127,6 +129,7 @@ class RivotrilAgent:
 
         plugin_guardrails, plugin_verifiers = load_plugins(plugins)
         self.guardrails = (guardrails or []) + plugin_guardrails
+        self.parallel_guardrails = parallel_guardrails
 
         resolved_memory_path = _resolve(memory_path, "memory_path", None)
         resolved_memory_max_tokens = _resolve(memory_max_tokens, "memory_max_tokens", None)
@@ -228,7 +231,7 @@ class RivotrilAgent:
         messages: list[Any] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-        messages.extend(self.memory.get_context())
+        messages.extend(self.memory.get_context(query=content_to_text(prompt)))
         normalized_context = _normalize_context_sources(context_sources)
         if normalized_context:
             messages.append(
@@ -245,12 +248,22 @@ class RivotrilAgent:
         return messages
 
     def _run_preflight(self, prompt: str) -> None:
-        for guardrail in self.guardrails:
+        def check(guardrail: Guardrail) -> None:
             try:
                 guardrail.validate_input(prompt)
             except GuardrailViolationError as exc:
                 logger.warning("Guardrail %r blocked input: %s", guardrail.name, exc)
                 raise
+
+        if self.parallel_guardrails and len(self.guardrails) > 1:
+            # Network-bound guardrails (moderation, Jev) overlap instead of
+            # adding up. All finish before the LLM call; first failure raises.
+            with ThreadPoolExecutor(max_workers=len(self.guardrails)) as pool:
+                for future in [pool.submit(check, g) for g in self.guardrails]:
+                    future.result()
+            return
+        for guardrail in self.guardrails:
+            check(guardrail)
 
     def _run_post_generation(
         self,

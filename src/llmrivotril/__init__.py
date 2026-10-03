@@ -8,6 +8,7 @@ from .exceptions import (
     TokenBudgetExceededError,
 )
 from .guardrails import Guardrail
+from .jev import JevContextSelector, JevGuardrail
 from .memory import MemoryStore
 from .metrics import MetricsCollector, global_metrics
 from .moderation import ModerationGuardrail
@@ -47,6 +48,8 @@ __all__ = [
     "StreamedStructuredResult",
     "AsyncStreamedStructuredResult",
     "Guardrail",
+    "JevContextSelector",
+    "JevGuardrail",
     "ModerationGuardrail",
     "MemoryStore",
     "MetricsCollector",
