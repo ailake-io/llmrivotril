@@ -19,27 +19,28 @@
 ## Release no PyPI
 
 O repositório contém `.github/workflows/release.yml`, que constrói o wheel e a
-source distribution e publica com `twine` usando um token de API do PyPI.
+source distribution em um job isolado e publica usando Trusted Publishing do
+PyPI (OIDC). Nenhum token de API do PyPI fica armazenado no GitHub.
+
 Setup único:
 
-1. Gere um token de API no PyPI. Para um projeto existente, restrinja-o ao
-   projeto `llmrivotril` sempre que o PyPI permitir.
-2. Adicione como secret do repositório com o nome `PYPI_API_TOKEN`
-   (Settings → Secrets and variables → Actions).
-3. Mantenha o token restrito ao projeto. Se um token abrangente foi usado no
-   upload inicial, revogue-o e substitua o secret por um token restrito apenas
-   ao `llmrivotril`.
-4. No GitHub Environment `pypi` do repositório (Settings → Environments),
-   considere adicionar reviewers obrigatórios/um wait timer. O `release.yml`
-   referencia esse environment especificamente pra que as regras de proteção
-   dele gatekeepem o passo real de upload pro PyPI -- essa é a mitigação por
-   usar um token estático de longa duração em vez de Trusted Publishing via
-   OIDC, que não tem uma credencial permanente equivalente pra proteger.
+1. Nas configurações do projeto no PyPI, abra **Publishing** e adicione um
+   trusted publisher do GitHub Actions com:
+   - owner: `ailake-io`
+   - repository: `llmrivotril`
+   - workflow: `.github/workflows/release.yml`
+   - environment: `pypi`
+2. No environment `pypi` do repositório, mantenha o wait timer de cinco minutos
+   e restrinja os deployments às tags de release usadas pelo projeto. Reviewers
+   obrigatórios são opcionais para este projeto de um único mantenedor.
+3. Depois de uma publicação OIDC bem-sucedida, revogue o secret/token legado
+   `PYPI_API_TOKEN` usado pelo workflow anterior.
 
 Depois do setup, publicar um GitHub Release a partir de uma tag de versão
-dispara o workflow automaticamente. `twine upload --skip-existing` torna uma
-nova execução do workflow (por exemplo, após uma falha transitória) segura --
-não dá erro em arquivos que já foram enviados para aquela versão.
+dispara o workflow automaticamente. A action oficial da PyPA também cria
+attestations de publicação no PyPI por padrão. Uma nova execução deve usar uma
+versão nova se algum arquivo já tiver sido enviado, pois os arquivos de uma
+release do PyPI são imutáveis.
 
 Não reutilize uma versão que já foi enviada: os arquivos de release do PyPI
 são imutáveis. Atualize o changelog e a versão do pacote antes de criar uma
