@@ -6,6 +6,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: pypi-release
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Build and publish distributions
@@ -24,6 +28,27 @@ jobs:
     steps:
       - name: Check out the release tag
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag comes from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+            echo "Expected a tag ref, got ${GITHUB_REF_TYPE:-unknown}." >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_NAME:-}" != v* ]]; then
+            echo "Release tag must start with v: ${GITHUB_REF_NAME:-unknown}." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag $GITHUB_REF_NAME does not point to a commit reachable from main." >&2
+            exit 1
+          fi
+          echo "Release tag $GITHUB_REF_NAME is based on main."
 
       - name: Set up Python
         uses: actions/setup-python@v5

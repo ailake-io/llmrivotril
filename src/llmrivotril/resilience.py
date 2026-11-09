@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from enum import Enum
 from threading import Lock
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from tenacity import (
     retry as tenacity_retry,
@@ -327,9 +327,10 @@ def make_retry(
     exceptions: type[BaseException] | tuple[type[BaseException], ...] = Exception,
 ) -> Callable[[F], F]:
     """Create a tenacity retry decorator for LLM calls."""
-    return tenacity_retry(
+    decorator: Any = tenacity_retry(
         stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
         retry=retry_if_exception_type(exceptions),
         reraise=True,
     )
+    return cast(Callable[[F], F], decorator)
