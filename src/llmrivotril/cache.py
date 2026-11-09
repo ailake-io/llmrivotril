@@ -31,7 +31,7 @@ _CACHE_KEY_SECRET = os.environ.get("RIVOTRIL_CACHE_KEY", "").encode("utf-8") or 
 
 def _cache_fingerprint(value: str) -> str:
     """Create a keyed cache identifier without exposing prompt contents."""
-    return hmac.new(_CACHE_KEY_SECRET, value.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(_CACHE_KEY_SECRET, value.encode("utf-8"), hashlib.sha3_256).hexdigest()
 
 
 def _encode_json(value: Any) -> Any:
