@@ -1,5 +1,5 @@
 name: CodeQL
-# Security workflow: actions are allowlisted by immutable commit SHA.
+# Security workflow: CodeQL sub-actions are allowlisted by immutable commit SHA.
 
 on:
   push:
