@@ -4,6 +4,11 @@ Este documento registra a análise do projeto feita em 28/09/2026. Ele deve ser
 usado como backlog técnico até que cada item tenha uma implementação, teste de
 regressão e documentação correspondente.
 
+> **Status atual:** esta é uma revisão histórica e mantém as datas e versões
+> originais para rastreabilidade. Para o estado publicado mais recente, use o
+> `README`, o `CHANGELOG.md` e `docs/releasing.md`. A versão em preparação nesta
+> linha de desenvolvimento é `0.1.5`.
+
 ## Pontos positivos
 
 - Estrutura `src/` adequada para distribuição como pacote Python.

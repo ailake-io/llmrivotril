@@ -31,6 +31,12 @@ faz streaming token por token, e um turno em que ele chama uma tool cai para
 um único round-trip bloqueante nesse turno (os deltas de argumento de
 tool-call não podem ser transmitidos de forma útil para quem chamou).
 
+Em `run_async()` e `run_stream_async()`, várias tools síncronas solicitadas no
+mesmo turno do modelo são executadas concorrentemente. As mensagens de
+resultado continuam sendo adicionadas na ordem solicitada pelo modelo. Um
+turno com tool-call em streaming ainda espera a execução das tools e a
+completion seguinte antes de entregar a resposta final.
+
 `response_model=` também é suportado, mas retorna um `StreamedStructuredResult`
 em vez de um iterador simples, já que JSON parcial não é um model válido --
 não há nada para validar até o stream terminar:

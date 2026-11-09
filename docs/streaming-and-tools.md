@@ -31,6 +31,12 @@ token by token, and a turn where it calls a tool falls back to a single
 blocking round-trip for that turn (tool-call argument deltas can't be
 usefully streamed to the caller).
 
+In `run_async()` and `run_stream_async()`, multiple synchronous tools requested
+in the same model turn are dispatched concurrently. Their result messages are
+still added in the order requested by the model. A tool-call streaming turn
+still waits for tool execution and the follow-up completion before yielding
+the final answer.
+
 `response_model=` is also supported, but returns a `StreamedStructuredResult`
 instead of a plain iterator, since partial JSON isn't a valid model -- there's
 nothing to type-check until the stream ends:
