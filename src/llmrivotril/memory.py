@@ -196,8 +196,7 @@ class MemoryStore:
 
         if self.encryption_key is None:
             raise ValueError(
-                "Encrypted memory persistence requires encryption_key or "
-                "RIVOTRIL_MEMORY_KEY."
+                "Encrypted memory persistence requires encryption_key or RIVOTRIL_MEMORY_KEY."
             )
         key = (
             self.encryption_key.encode()
@@ -228,9 +227,7 @@ class MemoryStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict) and data.get("format") == "llmrivotril-memory-v1":
             if self.encryption_key is None:
-                raise ValueError(
-                    "Encrypted memory requires encryption_key or RIVOTRIL_MEMORY_KEY."
-                )
+                raise ValueError("Encrypted memory requires encryption_key or RIVOTRIL_MEMORY_KEY.")
             key = (
                 self.encryption_key.encode()
                 if isinstance(self.encryption_key, str)
