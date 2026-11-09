@@ -1,3 +1,10 @@
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
+
 from llmrivotril import (
     BaseChunker,
     BaseLoader,
@@ -10,7 +17,10 @@ from llmrivotril import (
 
 
 def test_public_api_exposes_extension_points_and_version():
-    assert __version__ == "0.1.5"
+    project = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert __version__ == project["project"]["version"]
     assert RAGPipeline is not None
     assert BaseLoader.__name__ == "BaseLoader"
     assert BaseChunker.__name__ == "BaseChunker"

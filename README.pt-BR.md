@@ -2,6 +2,9 @@
 
 ![Logo do LLM-Rivotril](https://github.com/ailake-io/llmrivotril/blob/main/docs/assets/logo.jpeg?raw=true)
 
+[![Versão no PyPI](https://img.shields.io/pypi/v/llmrivotril?label=PyPI)](https://pypi.org/project/llmrivotril/)
+[![Versões do Python](https://img.shields.io/pypi/pyversions/llmrivotril)](https://pypi.org/project/llmrivotril/)
+
 *[English](README.md)*
 
 Um framework Python leve para reduzir alucinações de LLM, aplicar guardrails, gerenciar memória com estado e monitorar desempenho por um dashboard web local.

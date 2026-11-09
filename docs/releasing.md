@@ -6,6 +6,9 @@
 
 1. Confirm the version in `pyproject.toml`, `src/llmrivotril/__init__.py`, and
    `CHANGELOG.md` is identical.
+   The README version badge is sourced dynamically from PyPI, so it must not be
+   edited manually. The test suite also checks that the package version matches
+   `pyproject.toml`.
 2. Confirm the package author and PyPI project name are final.
 3. Install CI/development dependencies through
    `.github/constraints-ci.txt`, as the workflows do.
