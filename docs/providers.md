@@ -16,6 +16,29 @@ agent = RivotrilAgent(
 )
 ```
 
+### Ollama smoke test
+
+Start Ollama and pull a local model:
+
+```bash
+ollama serve
+ollama pull qwen2.5:3b
+```
+
+Then configure the regular OpenAI-compatible provider:
+
+```python
+agent = RivotrilAgent(
+    model="qwen2.5:3b",
+    base_url="http://127.0.0.1:11434/v1",
+    api_key="ollama",
+)
+```
+
+This keeps prompts on the local machine as long as Ollama is bound to
+localhost. The model's response quality and latency still depend on the local
+model and available hardware.
+
 ## Other Providers
 
 Use Anthropic, Cohere, or Gemini natively:

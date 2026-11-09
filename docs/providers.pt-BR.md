@@ -16,6 +16,29 @@ agent = RivotrilAgent(
 )
 ```
 
+### Smoke test com Ollama
+
+Inicie o Ollama e baixe um modelo local:
+
+```bash
+ollama serve
+ollama pull qwen2.5:3b
+```
+
+Depois configure o provider compatível com OpenAI:
+
+```python
+agent = RivotrilAgent(
+    model="qwen2.5:3b",
+    base_url="http://127.0.0.1:11434/v1",
+    api_key="ollama",
+)
+```
+
+Isso mantém os prompts na máquina desde que o Ollama esteja limitado ao
+localhost. A qualidade e a latência ainda dependem do modelo local e do
+hardware disponível.
+
 ## Outros providers
 
 Use Anthropic, Cohere ou Gemini nativamente:

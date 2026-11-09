@@ -2,9 +2,24 @@
 
 ![LLM-Rivotril logo](https://github.com/ailake-io/llmrivotril/blob/main/docs/assets/logo.jpeg?raw=true)
 
+[![PyPI version](https://img.shields.io/pypi/v/llmrivotril?label=PyPI)](https://pypi.org/project/llmrivotril/)
+[![Python versions](https://img.shields.io/pypi/pyversions/llmrivotril)](https://pypi.org/project/llmrivotril/)
+
 *[Português](https://github.com/ailake-io/llmrivotril/blob/main/README.pt-BR.md)*
 
 A lightweight Python framework to reduce LLM hallucinations, enforce guardrails, manage stateful memory, and monitor performance through a local web dashboard.
+
+## Why LLM-Rivotril?
+
+LLM-Rivotril is an orchestration and safety layer around an LLM; it is not a
+model and does not make a small model inherently smarter. It lets the same
+application move between local and hosted models while keeping a consistent
+interface for guardrails, memory, caching, retries, streaming, tool calling,
+telemetry, and framework integrations.
+
+Use Ollama when privacy, offline operation, and predictable local costs matter;
+use a hosted provider when you need a larger or more capable model. In both
+cases, LLM-Rivotril keeps the application-level controls in one place.
 
 ## Features
 
@@ -70,6 +85,32 @@ agent = RivotrilAgent(
 response = agent.run("Explain what a guardrail is in AI safety.")
 print(response)
 ```
+
+### Local Ollama
+
+With Ollama running locally, use its OpenAI-compatible endpoint. The API key
+is only a placeholder required by the OpenAI client and is not sent to a
+remote provider:
+
+```bash
+ollama serve
+ollama pull qwen2.5:3b
+```
+
+```python
+from llmrivotril import RivotrilAgent
+
+agent = RivotrilAgent(
+    model="qwen2.5:3b",
+    base_url="http://127.0.0.1:11434/v1",
+    api_key="ollama",
+)
+print(agent.run("Explain what a guardrail is in AI safety."))
+```
+
+The model quality, latency, and hardware requirements depend on the Ollama
+model selected. Keep Ollama bound to localhost when prompts must stay on the
+machine.
 
 ## Documentation
 

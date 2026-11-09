@@ -2,9 +2,25 @@
 
 ![Logo do LLM-Rivotril](https://github.com/ailake-io/llmrivotril/blob/main/docs/assets/logo.jpeg?raw=true)
 
+[![Versão no PyPI](https://img.shields.io/pypi/v/llmrivotril?label=PyPI)](https://pypi.org/project/llmrivotril/)
+[![Versões do Python](https://img.shields.io/pypi/pyversions/llmrivotril)](https://pypi.org/project/llmrivotril/)
+
 *[English](README.md)*
 
 Um framework Python leve para reduzir alucinações de LLM, aplicar guardrails, gerenciar memória com estado e monitorar desempenho por um dashboard web local.
+
+## Por que usar o LLM-Rivotril?
+
+O LLM-Rivotril é uma camada de orquestração e segurança ao redor do LLM; ele
+não é um modelo e não torna um modelo pequeno automaticamente mais inteligente.
+Ele permite mover a mesma aplicação entre modelos locais e hospedados mantendo
+uma interface consistente para guardrails, memória, cache, retries, streaming,
+tool calling, telemetria e integrações com frameworks.
+
+Use Ollama quando privacidade, operação offline e custo local previsível forem
+importantes; use um provider hospedado quando precisar de um modelo maior ou
+mais capaz. Nos dois casos, o LLM-Rivotril mantém os controles da aplicação em
+um único lugar.
 
 ## Funcionalidades
 
@@ -70,6 +86,32 @@ agent = RivotrilAgent(
 response = agent.run("Explain what a guardrail is in AI safety.")
 print(response)
 ```
+
+### Ollama local
+
+Com o Ollama rodando localmente, use o endpoint compatível com OpenAI. A chave
+é apenas um placeholder exigido pelo cliente OpenAI e não é enviada para um
+provider remoto:
+
+```bash
+ollama serve
+ollama pull qwen2.5:3b
+```
+
+```python
+from llmrivotril import RivotrilAgent
+
+agent = RivotrilAgent(
+    model="qwen2.5:3b",
+    base_url="http://127.0.0.1:11434/v1",
+    api_key="ollama",
+)
+print(agent.run("Explique o que é um guardrail em segurança de IA."))
+```
+
+A qualidade, latência e necessidade de hardware dependem do modelo escolhido
+no Ollama. Mantenha o Ollama limitado ao localhost quando os prompts precisarem
+ficar na máquina.
 
 ## Documentação
 

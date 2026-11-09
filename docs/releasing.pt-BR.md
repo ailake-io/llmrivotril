@@ -6,6 +6,9 @@
 
 1. Confirme que a versão em `pyproject.toml`, `src/llmrivotril/__init__.py`, e
    `CHANGELOG.md` é idêntica.
+   O badge de versão do README é obtido dinamicamente do PyPI e não deve ser
+   editado manualmente. A suíte de testes também verifica que a versão exposta
+   pelo pacote coincide com a versão do `pyproject.toml`.
 2. Confirme que o autor do pacote e o nome do projeto no PyPI estão finais.
 3. Rode os gates de lint, format, type-check e testes.
 4. Rode `python -m build` e `python -m twine check dist/*`.
@@ -44,8 +47,9 @@ nova tag.
 
 ## Status atual do release
 
-Em 30/09/2026, a versão `0.1.4` está pronta para release: a correção foi
-integrada à `main` e os gates da CI passaram. Crie e publique o GitHub Release
-`v0.1.4` para disparar o workflow do PyPI e depois confirme o pacote no PyPI.
-Veja a [revisão técnica](technical-review.md#status-validado-em-29092026) para
-o checklist completo e as limitações de integração conhecidas.
+A versão `0.1.5` contém as melhorias de performance de streaming e execução de
+tools, a migração da CI para Ubuntu 26.04 e a documentação atualizada de
+Ollama/modelos locais. Faça o merge da PR de release na `main`, aguarde a CI
+pós-merge e então crie e publique o GitHub Release `v0.1.5` para disparar o
+workflow do PyPI. Confirme o pacote no PyPI e rode o smoke test do Ollama
+localmente.

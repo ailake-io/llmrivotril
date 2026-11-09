@@ -1,7 +1,9 @@
+import asyncio
 import json
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Any, cast
 
@@ -726,8 +728,15 @@ class RivotrilAgent:
                 break
 
             messages.append(self._assistant_tool_call_message(calls))
-            for call in calls:
-                result = tool_registry.execute(call)
+            # Tool implementations are synchronous today. Run independent
+            # calls concurrently in worker threads while preserving the
+            # provider-requested order in the conversation.
+            loop = asyncio.get_running_loop()
+            with ThreadPoolExecutor(max_workers=len(calls)) as executor:
+                results = await asyncio.gather(
+                    *(loop.run_in_executor(executor, tool_registry.execute, call) for call in calls)
+                )
+            for call, result in zip(calls, results, strict=True):
                 messages.append(
                     {
                         "role": "tool",
@@ -1082,6 +1091,7 @@ class RivotrilAgent:
         guardrail_blocked = False
         hallucination_blocked = False
         error_msg: str | None = None
+        response_chunks: list[str] = []
         response_text = ""
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
@@ -1093,9 +1103,10 @@ class RivotrilAgent:
             messages = self._build_messages(prompt, context_sources)
 
             for chunk in self._stream_chunks(messages, tool_registry):
-                response_text += chunk
+                response_chunks.append(chunk)
                 yield chunk
 
+            response_text = "".join(response_chunks)
             response_text = (
                 self.pii_redactor.redact(response_text) if self.redact_pii else response_text
             )
@@ -1162,6 +1173,7 @@ class RivotrilAgent:
         guardrail_blocked = False
         hallucination_blocked = False
         error_msg: str | None = None
+        response_chunks: list[str] = []
         response_text = ""
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
@@ -1173,9 +1185,10 @@ class RivotrilAgent:
             messages = self._build_messages(prompt, context_sources)
 
             async for chunk in self._astream_chunks(messages, tool_registry):
-                response_text += chunk
+                response_chunks.append(chunk)
                 yield chunk
 
+            response_text = "".join(response_chunks)
             response_text = (
                 self.pii_redactor.redact(response_text) if self.redact_pii else response_text
             )
@@ -1223,6 +1236,7 @@ class RivotrilAgent:
         guardrail_blocked = False
         hallucination_blocked = False
         error_msg: str | None = None
+        response_chunks: list[str] = []
         response_text = ""
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
@@ -1233,9 +1247,10 @@ class RivotrilAgent:
             messages = self._build_messages(prompt, context_sources)
 
             for chunk in self._stream_chunks(messages, None):
-                response_text += chunk
+                response_chunks.append(chunk)
                 yield chunk
 
+            response_text = "".join(response_chunks)
             structured_json = (
                 self.pii_redactor.redact(response_text) if self.redact_pii else response_text
             )
@@ -1294,6 +1309,7 @@ class RivotrilAgent:
         guardrail_blocked = False
         hallucination_blocked = False
         error_msg: str | None = None
+        response_chunks: list[str] = []
         response_text = ""
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
@@ -1304,9 +1320,10 @@ class RivotrilAgent:
             messages = self._build_messages(prompt, context_sources)
 
             async for chunk in self._astream_chunks(messages, None):
-                response_text += chunk
+                response_chunks.append(chunk)
                 yield chunk
 
+            response_text = "".join(response_chunks)
             structured_json = (
                 self.pii_redactor.redact(response_text) if self.redact_pii else response_text
             )

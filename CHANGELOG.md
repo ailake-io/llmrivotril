@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-09
+
+### Added
+
+- Documented the project value proposition, local Ollama usage, and the
+  security/cost trade-offs of local versus hosted models.
+
+### Changed
+
+- Streaming now accumulates chunks and joins them once, avoiding repeated
+  string reallocation for long responses.
+- Async tool calls from the same model turn run concurrently while preserving
+  the order of tool result messages sent back to the model.
+- Updated the supported CI/release environment to Ubuntu 26.04 and refreshed
+  the GitHub Actions runtime versions.
+
+### Validation
+
+- Local Ollama smoke-tested through the OpenAI-compatible endpoint for normal
+  completion, streaming, and tool calling.
+- Local test suite: 359 passed, 22 skipped; Ruff and mypy passed.
+
 ## [0.1.4] - 2026-09-30
 
 ### Fixed
