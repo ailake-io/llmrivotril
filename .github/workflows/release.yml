@@ -13,7 +13,7 @@ concurrency:
 jobs:
   publish:
     name: Build and publish distributions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Configure this environment's protection rules (required reviewers,
     # wait timer) in Settings -> Environments to gate the actual upload step
     # behind manual approval -- switching from Trusted Publishing to a
