@@ -48,6 +48,7 @@ Precedência: valores padrão do arquivo < variáveis de ambiente < argumentos d
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Rejeita execuções que excederiam esse orçamento cumulativo. |
 | `RIVOTRIL_METRICS_PATH` | string | Persiste métricas automaticamente nesse arquivo JSON. |
 | `RIVOTRIL_MEMORY_PATH` | string | Persiste a memória de conversa automaticamente nesse arquivo JSON. |
+| `RIVOTRIL_MEMORY_KEY` | chave Fernet | Criptografa a memória da conversa em repouso. Gere com `Fernet.generate_key()`. Obrigatória para novas gravações. |
 | `RIVOTRIL_CACHE_PATH` | string | Habilita cache de resposta em disco nesse caminho. |
 | `RIVOTRIL_TRACK_COSTS` | bool | Habilita rastreamento de custo estimado nas métricas. |
 | `RIVOTRIL_SCHEMA_REPAIR_ATTEMPTS` | int | Tenta corrigir falhas de validação de saída estruturada esse número de vezes. |

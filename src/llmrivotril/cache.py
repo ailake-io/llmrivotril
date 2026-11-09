@@ -110,7 +110,11 @@ def cache_key(
     if response_model is not None:
         schema = response_model.model_json_schema()
         schema_json = json.dumps(schema, sort_keys=True, ensure_ascii=False, default=str)
-        schema_fingerprint = hashlib.sha256(schema_json.encode("utf-8")).hexdigest()
+        # This is an opaque cache identifier, not password or credential
+        # storage. BLAKE2b provides a modern collision-resistant digest.
+        schema_fingerprint = hashlib.blake2b(
+            schema_json.encode("utf-8"), digest_size=32
+        ).hexdigest()
         response_model_id = (
             f"{response_model.__module__}.{response_model.__qualname__}:{schema_fingerprint}"
         )
@@ -124,7 +128,7 @@ def cache_key(
         "base_url": base_url,
     }
     normalized = json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return hashlib.blake2b(normalized.encode("utf-8"), digest_size=32).hexdigest()
 
 
 class BaseCache(ABC):

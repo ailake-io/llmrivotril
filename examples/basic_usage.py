@@ -26,11 +26,11 @@ def main():
         ],
     )
 
-    response = agent.run(
+    agent.run(
         "Summarize the concept of LLM guardrails in two bullet points.",
         response_model=Summary,
     )
-    print(response)
+    print("Response generated successfully.")
 
 
 if __name__ == "__main__":

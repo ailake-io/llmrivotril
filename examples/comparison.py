@@ -114,7 +114,7 @@ def _without_package(
     for label, prompt, ctx in scenarios:
         response = llm.call(prompt)
         print(f"\n[{label}] Prompt: {prompt}")
-        print(f"  → Response: {response}")
+        print("  → Response generated.")
 
         if "password" in prompt.lower():
             print("  ⚠️  Risky prompt (would-be secret/policy leak) went straight to the model")
@@ -168,16 +168,16 @@ def _with_package(
         print(f"\n[{label}] Prompt: {prompt}")
         try:
             if label == "schema":
-                result = agent.run(prompt, response_model=Answer, context_sources=ctx)
+                agent.run(prompt, response_model=Answer, context_sources=ctx)
             else:
-                result = agent.run(prompt, context_sources=ctx)
-            print(f"  → Response: {result}")
-        except GuardrailViolationError as exc:
-            print(f"  → BLOCKED by guardrail: {exc}")
-        except HallucinationDetectedError as exc:
-            print(f"  → BLOCKED by verifier: {exc}")
+                agent.run(prompt, context_sources=ctx)
+            print("  → Response generated.")
+        except GuardrailViolationError:
+            print("  → BLOCKED by guardrail")
+        except HallucinationDetectedError:
+            print("  → BLOCKED by verifier")
         except Exception as exc:
-            print(f"  → ERROR: {exc}")
+            print(f"  → ERROR: {type(exc).__name__}")
 
     summary = global_metrics.get_summary()
     print("\nTelemetry summary:")

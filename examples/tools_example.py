@@ -40,11 +40,11 @@ def main():
         provider=_MockToolProvider(),
     )
 
-    response = agent.run(
+    agent.run(
         "What is the weather in Paris?",
         tools=[get_weather],
     )
-    print(response)
+    print("Tool call completed successfully.")
 
 
 if __name__ == "__main__":
