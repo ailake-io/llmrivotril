@@ -31,9 +31,9 @@ _CACHE_KEY_SECRET = os.environ.get("RIVOTRIL_CACHE_KEY", "").encode("utf-8") or 
 
 def _cache_fingerprint(value: str) -> str:
     """Create a keyed cache identifier without exposing prompt contents."""
-    # codeql[py/weak-sensitive-data-hashing] This is a keyed cache identifier,
-    # not password storage; the prompt is never used for authentication.
-    return hmac.new(_CACHE_KEY_SECRET, value.encode("utf-8"), hashlib.sha3_256).hexdigest()
+    return hmac.new(  # codeql[py/weak-sensitive-data-hashing] cache key, not password storage
+        _CACHE_KEY_SECRET, value.encode("utf-8"), hashlib.sha3_256
+    ).hexdigest()
 
 
 def _encode_json(value: Any) -> Any:
