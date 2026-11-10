@@ -33,6 +33,21 @@ latency aggregates survive persistence, including loading legacy snapshots.
 
 ## Local Dashboard
 
+For metadata-only telemetry, inject
+`MetricsCollector(include_content=False)` into `RivotrilAgent(metrics=...)`.
+Prompt, response and error details become `[omitted]` before retention or
+persistence, including when loading old snapshots. Counters, timings, tokens
+and error presence remain available. This setting applies to metrics only;
+conversation memory, caches and application logging have separate policies.
+
+Run `pytest -q tests/test_http_contracts.py` in the development venv for offline
+HTTP contracts. The installed OpenAI SDK and Azure adapter use
+`httpx.MockTransport`: no sockets, accounts or real credentials. Tests cover
+sync/async completion, SSE, status errors, timeout mapping, SDK retry and tool
+serialization. The retry case tests the SDK, not the agent retry layer.
+Native providers and AG2 still need additional contracts; these tests do not
+establish live service compatibility.
+
 Start the telemetry dashboard:
 
 ```bash

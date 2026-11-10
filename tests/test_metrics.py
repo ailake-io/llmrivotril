@@ -12,6 +12,18 @@ def test_empty_summary():
     assert summary["success_rate"] == 100.0
 
 
+def test_metadata_only_metrics_never_persist_request_content(tmp_path):
+    metrics = MetricsCollector(include_content=False)
+    metrics.log_execution("secret input", "secret output", 3, 0.1, error="secret failure")
+    path = tmp_path / "metrics.json"
+    metrics.save_to_json(path)
+    assert "secret" not in path.read_text()
+    assert metrics.get_summary()["errors_total"] == 1
+    assert metrics.get_summary()["logs"][0]["tokens"] == 3
+    metrics.from_dict({"logs": [{"prompt": "secret", "response": "secret", "error": "secret"}]})
+    assert "secret" not in str(metrics.to_dict())
+
+
 def test_bounded_latency_preserves_global_average_and_errors(tmp_path):
     metrics = MetricsCollector(max_logs=0)
     for i in range(1500):

@@ -14,7 +14,12 @@ class MetricsCollector:
     Tracks requests, tokens, guardrail blocks, hallucinations, and cache hits.
     """
 
-    def __init__(self, auto_save_path: str | Path | None = None, max_logs: int = 100) -> None:
+    def __init__(
+        self,
+        auto_save_path: str | Path | None = None,
+        max_logs: int = 100,
+        include_content: bool = True,
+    ) -> None:
         if max_logs < 0:
             raise ValueError("max_logs must be non-negative")
         self._lock = Lock()
@@ -31,6 +36,7 @@ class MetricsCollector:
         self.logs: list[dict[str, Any]] = []
         self.auto_save_path = auto_save_path
         self.max_logs = max_logs
+        self.include_content = include_content
 
     def log_execution(
         self,
@@ -44,6 +50,9 @@ class MetricsCollector:
         cost_usd: float | None = None,
         cache_hit: bool = False,
     ) -> None:
+        if not self.include_content:
+            prompt = response = "[omitted]"
+            error = "[omitted]" if error is not None else None
         with self._lock:
             self.requests_total += 1
             self.total_tokens_consumed += tokens
@@ -158,6 +167,11 @@ class MetricsCollector:
             self._latency_count = data.get("latency_count", len(samples))
             self.latencies = samples[-1000:].copy()
             self.logs = deepcopy(data.get("logs", [])[: self.max_logs])
+            if not self.include_content:
+                for entry in self.logs:
+                    entry["prompt"] = entry["response"] = "[omitted]"
+                    if entry.get("error") is not None:
+                        entry["error"] = "[omitted]"
 
     def _maybe_auto_save(self) -> None:
         """Persist state if an automatic save path is configured."""

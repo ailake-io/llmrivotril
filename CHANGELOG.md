@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Local validation and privacy
+
+- Add offline wire contracts using the real OpenAI SDK for OpenAI-compatible
+  and Azure requests, SSE, errors, timeouts, retries and tool calls.
+- Add `MetricsCollector(include_content=False)` to omit request, response and
+  exception details from metrics, including imported snapshots.
+- Local venv validation: 385 passed, 22 skipped; Ruff and mypy passed.
+
 ### Fixed
 
 - Bound latency history while preserving cumulative averages and legacy snapshots.

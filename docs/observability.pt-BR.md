@@ -35,6 +35,20 @@ com leitura compatível de arquivos antigos.
 
 ## Dashboard local
 
+Para telemetria somente com metadados, injete
+`MetricsCollector(include_content=False)` em `RivotrilAgent(metrics=...)`.
+Prompt, resposta e detalhes de erro viram `[omitted]` antes de serem guardados
+ou persistidos, inclusive ao importar snapshots antigos. Contadores, tempos,
+tokens e presença de erros continuam disponíveis. Isso afeta apenas métricas;
+memória, caches e logs da aplicação têm políticas independentes.
+
+Execute `pytest -q tests/test_http_contracts.py` no venv de desenvolvimento
+para os contratos HTTP locais. O SDK OpenAI instalado e o adapter Azure usam
+`httpx.MockTransport`, sem sockets, contas ou credenciais reais. Há cobertura
+de chamadas sync/async, SSE, erros HTTP, timeout, retry do SDK e ferramentas.
+O caso de retry testa o SDK, não a camada de retry do agente. Providers nativos
+e AG2 ainda precisam de contratos adicionais; isso não valida serviços reais.
+
 Inicie o dashboard de telemetria:
 
 ```bash

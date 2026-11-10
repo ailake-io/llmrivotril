@@ -208,6 +208,11 @@ python -m pip install -c .github/constraints-runtime.txt \
 
 The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.15.
 
+Offline SDK contracts: `pytest -q tests/test_http_contracts.py` uses in-memory
+HTTP with dummy credentials. For telemetry without request or error content,
+pass `MetricsCollector(include_content=False)` to the agent. See
+[observability](docs/observability.md).
+
 Optional size controls: `max_context_chars`, `max_attachment_bytes`, and `max_response_chars` accept positive integers (default `None`). Response checks run locally and do not cap provider billing. See [configuration](docs/configuration.md) for streaming and attachment semantics.
 
 ## License
