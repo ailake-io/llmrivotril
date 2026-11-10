@@ -107,7 +107,9 @@ class ToolRegistry:
             # exception type goes back to the model, since that result is
             # appended to the conversation and can surface in the final
             # response.
-            logger.warning("Tool %r raised %s: %s", tool_call.name, type(exc).__name__, exc)
+            # Exception messages can contain credentials, URLs, SQL, or local
+            # paths. Keep raw details out of logs as well as model responses.
+            logger.warning("A registered tool failed with %s", type(exc).__name__)
             return json.dumps(
                 {"error": f"Tool {tool_call.name!r} failed with {type(exc).__name__}."}
             )

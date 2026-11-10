@@ -21,27 +21,27 @@
 ## PyPI release
 
 The repository contains `.github/workflows/release.yml`, which builds the
-wheel and source distribution and publishes them with `twine` using a PyPI
-API token. One-time setup:
+wheel and source distribution in an isolated job and publishes them using
+PyPI Trusted Publishing (OIDC). No PyPI API token is stored in GitHub.
 
-1. Generate an API token on PyPI. For an existing project, scope it to
-   `llmrivotril` whenever PyPI allows that.
-2. Add it as a repository secret named `PYPI_API_TOKEN`
-   (Settings → Secrets and variables → Actions).
-3. Keep the token project-scoped. If an account-wide token was used for the
-   initial upload, revoke it and replace the secret with a token scoped only
-   to `llmrivotril`.
-4. In the repository's `pypi` GitHub Environment (Settings → Environments),
-   consider adding required reviewers/a wait timer. `release.yml` references
-   this environment specifically so its protection rules gate the actual
-   PyPI upload step -- this is the mitigation for using a static long-lived
-   token instead of OIDC Trusted Publishing, which has no equivalent
-   standing credential to protect.
+One-time setup:
+
+1. In the PyPI project settings, open **Publishing** and add a GitHub Actions
+   trusted publisher with:
+   - owner: `ailake-io`
+   - repository: `llmrivotril`
+   - workflow: `.github/workflows/release.yml`
+   - environment: `pypi`
+2. In the repository's `pypi` environment, keep the five-minute wait timer and
+   restrict deployment tags to the release tags used by the project. Required
+   reviewers are optional for this single-maintainer project.
+3. After a successful OIDC publication, revoke the legacy `PYPI_API_TOKEN`
+   secret/token used by the previous workflow.
 
 After setup, publishing a GitHub Release from a version tag triggers the
-workflow automatically. `twine upload --skip-existing` makes a rerun of the
-workflow (e.g. after a transient failure) safe -- it won't error on files
-already uploaded for that version.
+workflow automatically. The official PyPA publish action also creates PyPI
+publish attestations by default. A rerun must use a new version if any files
+were already uploaded, because PyPI release files are immutable.
 
 Do not reuse a version that has already been uploaded: PyPI release files are
 immutable. Update the changelog and package version before creating a new tag.

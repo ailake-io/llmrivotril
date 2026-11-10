@@ -622,8 +622,11 @@ def test_agent_uses_disk_cache_via_env(tmp_path, monkeypatch):
 
 
 def test_agent_persists_memory_via_env(tmp_path, monkeypatch):
+    from cryptography.fernet import Fernet
+
     memory_path = tmp_path / "agent-memory.json"
     monkeypatch.setenv("RIVOTRIL_MEMORY_PATH", str(memory_path))
+    monkeypatch.setenv("RIVOTRIL_MEMORY_KEY", Fernet.generate_key().decode())
 
     agent, provider = _make_agent()
     provider._complete_mock.return_value = ProviderResponse(content="hi there")

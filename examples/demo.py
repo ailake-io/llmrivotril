@@ -107,13 +107,13 @@ def _run_demo(agent: RivotrilAgent) -> None:
                 response_model=response_model,
                 context_sources=ctx,
             )
-            print(f"  → OK: {result}")
-        except GuardrailViolationError as exc:
-            print(f"  → BLOCKED by guardrail: {exc}")
-        except HallucinationDetectedError as exc:
-            print(f"  → BLOCKED by verifier: {exc}")
+            print(f"  → OK: {type(result).__name__}")
+        except GuardrailViolationError:
+            print("  → BLOCKED by guardrail")
+        except HallucinationDetectedError:
+            print("  → BLOCKED by verifier")
         except Exception as exc:
-            print(f"  → ERROR: {exc}")
+            print(f"  → ERROR: {type(exc).__name__}")
         time.sleep(0.5)
 
     _print_metrics()

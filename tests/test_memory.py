@@ -1,4 +1,12 @@
+import pytest
+
 from llmrivotril import MemoryStore
+
+
+def _memory_key() -> bytes:
+    from cryptography.fernet import Fernet
+
+    return Fernet.generate_key()
 
 
 def test_add_turn_and_retrieve():
@@ -48,14 +56,16 @@ def test_to_dict_and_from_dict():
 
 
 def test_save_and_load_from_json(tmp_path):
+    key = _memory_key()
     memory = MemoryStore(retention_window=2)
     memory.add_turn("user", "hello")
     memory.add_turn("assistant", "hi there")
 
     path = tmp_path / "memory.json"
+    memory.encryption_key = key
     memory.save_to_json(path)
 
-    restored = MemoryStore()
+    restored = MemoryStore(encryption_key=key)
     restored.load_from_json(path)
 
     assert restored.retention_window == 2
@@ -67,20 +77,23 @@ def test_save_and_load_from_json(tmp_path):
 
 def test_auto_save_path_persists_after_every_turn(tmp_path):
     path = tmp_path / "auto_memory.json"
-    memory = MemoryStore(auto_save_path=path)
+    key = _memory_key()
+    memory = MemoryStore(auto_save_path=path, encryption_key=key)
 
     memory.add_turn("user", "hello")
     assert path.exists()
 
     # A fresh instance pointed at the same path picks up the saved turn --
     # this proves it's written after every add_turn, not just on demand.
-    reloaded = MemoryStore(auto_save_path=path)
+    reloaded = MemoryStore(auto_save_path=path, encryption_key=key)
     assert reloaded.get_context() == [{"role": "user", "content": "hello"}]
 
 
 def test_auto_save_path_via_env_var(tmp_path, monkeypatch):
     path = tmp_path / "env_memory.json"
+    key = _memory_key()
     monkeypatch.setenv("RIVOTRIL_MEMORY_PATH", str(path))
+    monkeypatch.setenv("RIVOTRIL_MEMORY_KEY", key.decode())
 
     memory = MemoryStore()
     memory.add_turn("user", "hi")
@@ -92,11 +105,29 @@ def test_auto_save_path_via_env_var(tmp_path, monkeypatch):
 
 def test_auto_save_path_creates_missing_parent_directory(tmp_path):
     path = tmp_path / "nested" / "dir" / "memory.json"
-    memory = MemoryStore(auto_save_path=path)
+    memory = MemoryStore(auto_save_path=path, encryption_key=_memory_key())
 
     memory.add_turn("user", "hello")
 
     assert path.exists()
+
+
+def test_memory_file_does_not_contain_plaintext(tmp_path):
+    key = _memory_key()
+    path = tmp_path / "memory.json"
+    memory = MemoryStore(encryption_key=key)
+    memory.add_turn("user", "secret conversation")
+    memory.save_to_json(path)
+
+    assert b"secret conversation" not in path.read_bytes()
+
+
+def test_memory_persistence_requires_key(tmp_path):
+    memory = MemoryStore()
+    memory.add_turn("user", "hello")
+
+    with pytest.raises(ValueError, match="RIVOTRIL_MEMORY_KEY"):
+        memory.save_to_json(tmp_path / "memory.json")
 
 
 def test_max_tokens_trims_oldest_turns_beyond_budget():

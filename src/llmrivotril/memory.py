@@ -46,6 +46,7 @@ class MemoryStore:
         count_tokens: Callable[[str], int] | None = None,
         summarize: Callable[[str], str] | None = None,
         summarize_trigger_turns: int = 20,
+        encryption_key: str | bytes | None = None,
     ) -> None:
         if retention_window <= 0:
             raise ValueError("retention_window must be positive")
@@ -54,6 +55,7 @@ class MemoryStore:
         self.count_tokens = count_tokens or _default_count_tokens
         self.summarize = summarize
         self.summarize_trigger_turns = summarize_trigger_turns
+        self.encryption_key = encryption_key or os.environ.get("RIVOTRIL_MEMORY_KEY")
         self.history: list[dict[str, str]] = []
         self._summary: str | None = None
         self.auto_save_path = auto_save_path
@@ -189,15 +191,52 @@ class MemoryStore:
             self._summary = summary if isinstance(summary, str) else None
 
     def save_to_json(self, path: str | Path) -> None:
-        """Persist the current conversation history to a JSON file."""
+        """Persist encrypted conversation history to a JSON file."""
+        from cryptography.fernet import Fernet
+
+        if self.encryption_key is None:
+            raise ValueError(
+                "Encrypted memory persistence requires encryption_key or RIVOTRIL_MEMORY_KEY."
+            )
+        key = (
+            self.encryption_key.encode()
+            if isinstance(self.encryption_key, str)
+            else self.encryption_key
+        )
+        try:
+            encrypted = Fernet(key).encrypt(
+                json.dumps(self.to_dict(), ensure_ascii=False).encode("utf-8")
+            )
+        except (ValueError, TypeError) as exc:
+            raise ValueError("encryption_key must be a valid Fernet key") from exc
+
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        temporary_path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        temporary_path.write_text(
+            json.dumps({"format": "llmrivotril-memory-v1", "payload": encrypted.decode()}),
+            encoding="utf-8",
+        )
         temporary_path.replace(path)
 
     def load_from_json(self, path: str | Path) -> None:
-        """Restore conversation history from a JSON file."""
+        """Restore encrypted or legacy unencrypted memory state."""
+        from cryptography.fernet import Fernet, InvalidToken
+
         path = Path(path)
         data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("format") == "llmrivotril-memory-v1":
+            if self.encryption_key is None:
+                raise ValueError("Encrypted memory requires encryption_key or RIVOTRIL_MEMORY_KEY.")
+            key = (
+                self.encryption_key.encode()
+                if isinstance(self.encryption_key, str)
+                else self.encryption_key
+            )
+            try:
+                data = json.loads(Fernet(key).decrypt(data["payload"].encode()).decode("utf-8"))
+            except (ValueError, TypeError, KeyError, InvalidToken) as exc:
+                raise ValueError("Unable to decrypt memory file with the supplied key") from exc
+        else:
+            logger.warning("Loading legacy unencrypted memory; save it again with a memory key.")
         self.from_dict(data)

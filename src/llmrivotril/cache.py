@@ -7,9 +7,12 @@ same prompt/configuration.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import importlib
 import json
 import logging
+import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -21,6 +24,18 @@ logger = logging.getLogger("llmrivotril")
 
 _PROVIDER_RESPONSE_TAG = "__llmrivotril_provider_response__"
 _PYDANTIC_MODEL_TAG = "__llmrivotril_pydantic_model__"
+_CACHE_KEY_SECRET = os.environ.get("RIVOTRIL_CACHE_KEY", "").encode("utf-8") or secrets.token_bytes(
+    32
+)
+
+
+def _cache_fingerprint(value: str) -> str:
+    """Create a keyed cache identifier without exposing prompt contents."""
+    return hmac.new(
+        _CACHE_KEY_SECRET,
+        value.encode("utf-8"),
+        hashlib.sha3_256,  # codeql[py/weak-sensitive-data-hashing] cache key, not password storage
+    ).hexdigest()
 
 
 def _encode_json(value: Any) -> Any:
@@ -110,7 +125,7 @@ def cache_key(
     if response_model is not None:
         schema = response_model.model_json_schema()
         schema_json = json.dumps(schema, sort_keys=True, ensure_ascii=False, default=str)
-        schema_fingerprint = hashlib.sha256(schema_json.encode("utf-8")).hexdigest()
+        schema_fingerprint = _cache_fingerprint(schema_json)
         response_model_id = (
             f"{response_model.__module__}.{response_model.__qualname__}:{schema_fingerprint}"
         )
@@ -124,7 +139,7 @@ def cache_key(
         "base_url": base_url,
     }
     normalized = json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return _cache_fingerprint(normalized)
 
 
 class BaseCache(ABC):
