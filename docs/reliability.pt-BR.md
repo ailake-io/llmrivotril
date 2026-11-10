@@ -148,6 +148,17 @@ agent.run("Return a JSON answer.", response_model=Answer)
 
 ## Chamadas concorrentes ao provider
 
+`max_output_tokens=256` envia um orçamento de saída em cada geração, incluindo
+continuações de ferramentas, reparos de schema, streaming e resumos de memória.
+OpenAI/Azure usam `max_completion_tokens`; Anthropic/Cohere usam `max_tokens`;
+Gemini usa `config.max_output_tokens`; Bedrock usa `inferenceConfig.maxTokens`.
+Endpoints compatíveis com OpenAI precisam aceitar `max_completion_tokens` para
+usar a opção. O padrão `None` preserva o comportamento existente. Um limite
+baixo pode truncar JSON ou argumentos de ferramentas; tokens de raciocínio
+também podem contar, conforme o provider. Retries e novas rodadas recebem
+orçamentos separados: não é reserva cumulativa, teto em dólares nem contabilidade
+completa. O custo dos resumos internos ainda não integra a telemetria da requisição.
+
 Use `RivotrilAgent(max_concurrent_calls=2)` para limitar chamadas simultâneas
 desse agente, incluindo streams. Cache hits não ocupam uma vaga. A vaga cobre
 retries e é liberada antes das ferramentas e chamadas de continuação. A espera

@@ -11,6 +11,29 @@ from llmrivotril.providers import AzureOpenAIProvider, OpenAIProvider
 MESSAGES = [{"role": "user", "content": "local test"}]
 
 
+def test_agent_sends_output_budget_through_real_sdk(monkeypatch):
+    from llmrivotril import RivotrilAgent
+    from llmrivotril.metrics import MetricsCollector
+
+    class Tokenizer:
+        def encode(self, text):
+            return list(text)
+
+    monkeypatch.setattr("llmrivotril.agent._get_tokenizer", lambda model: Tokenizer())
+
+    def handle(request):
+        assert json.loads(request.content)["max_completion_tokens"] == 12
+        return httpx.Response(200, json=completion())
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        agent = RivotrilAgent(
+            provider=provider_for("openai", client),
+            max_output_tokens=12,
+            metrics=MetricsCollector(include_content=False),
+        )
+        assert agent.run("local test") == "OK"
+
+
 def test_sdk_retries_transient_failure_locally():
     requests = []
 

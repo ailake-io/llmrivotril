@@ -208,6 +208,8 @@ python -m pip install -c .github/constraints-runtime.txt \
 
 The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.15.
 
+Set `max_output_tokens` for a native per-generation output budget, including
+follow-ups and summaries. This is not a cumulative spending cap.
 Set `max_concurrent_calls` to bound provider concurrency per agent. Explicitly
 close streams when stopping early; see [reliability](docs/reliability.md).
 

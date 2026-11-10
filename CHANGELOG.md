@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Generation budgets
+
+- Add optional `max_output_tokens` with native mappings for all six providers,
+  applied to streaming, follow-up calls, schema repairs and memory summaries.
+- Namespace response-cache keys by the configured output budget.
+- Preserve Gemini system instructions when generation config is supplied and
+  forward extra generation arguments in Cohere completion calls.
+- Local Python 3.14 venv validation: 408 passed, 22 skipped, including offline
+  HTTP contracts; Ruff, formatting and mypy passed.
+
 ### Concurrency and stream lifecycle
 
 - Add optional per-agent `max_concurrent_calls`, shared by synchronous and

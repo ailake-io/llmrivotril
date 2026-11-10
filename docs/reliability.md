@@ -145,6 +145,17 @@ agent.run("Return a JSON answer.", response_model=Answer)
 
 ## Concurrent provider calls
 
+`max_output_tokens=256` sends an output budget with each generation, including
+tool follow-ups, schema repair, streaming and memory summaries. OpenAI/Azure
+use `max_completion_tokens`; Anthropic/Cohere use `max_tokens`; Gemini uses
+`config.max_output_tokens`; Bedrock uses `inferenceConfig.maxTokens`.
+OpenAI-compatible endpoints must support `max_completion_tokens` to use this
+option. The default `None` preserves existing provider behavior. A low budget
+can truncate JSON or tool arguments; provider reasoning tokens may also count
+toward the limit. Retries and additional rounds have separate budgets: this is
+not a cumulative token reservation, dollar cap or complete usage accounting.
+Internal summarization costs are still not included in request telemetry.
+
 Use `RivotrilAgent(max_concurrent_calls=2)` to bound overlapping provider calls
 from that agent, including streams. Cache hits do not occupy a slot. The slot
 covers retries and is released before tool execution and follow-up calls.

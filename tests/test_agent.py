@@ -71,6 +71,38 @@ def test_agent_without_response_model():
     assert agent.memory.get_context()[-1]["role"] == "assistant"
 
 
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_output_token_budget_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        _make_agent(max_output_tokens=value)
+
+
+def test_output_budget_reaches_generation_and_summary():
+    agent, provider = _make_agent(max_output_tokens=20)
+    provider._complete_mock.return_value = ProviderResponse(content="OK")
+    agent.run("hi")
+    assert provider._complete_mock.call_args.kwargs["max_tokens"] == 20
+    assert agent._summarize_history("history") == "OK"
+    assert provider._complete_mock.call_args.kwargs["max_tokens"] == 20
+
+
+@pytest.mark.asyncio
+async def test_async_output_budget_reaches_provider():
+    agent, provider = _make_agent(max_output_tokens=20)
+    provider._acomplete_mock.return_value = ProviderResponse(content="OK")
+    await agent.run_async("hi")
+    assert provider._acomplete_mock.call_args.kwargs["max_tokens"] == 20
+
+
+def test_output_budget_namespaces_custom_cache_keys():
+    agent, _ = _make_agent(max_output_tokens=20, cache_key_fn=lambda *args: "custom")
+    first = agent._build_cache_key([], None, None)
+    agent.max_output_tokens = 30
+    assert first != agent._build_cache_key([], None, None)
+    agent.max_output_tokens = None
+    assert agent._build_cache_key([], None, None) == "custom"
+
+
 def test_agent_rejects_prompt_above_character_limit():
     agent, _ = _make_agent(max_prompt_chars=4)
 

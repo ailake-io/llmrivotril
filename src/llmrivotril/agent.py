@@ -100,6 +100,7 @@ class RivotrilAgent:
         max_attachment_bytes: Any = _UNSET,
         max_response_chars: Any = _UNSET,
         max_concurrent_calls: Any = _UNSET,
+        max_output_tokens: Any = _UNSET,
     ) -> None:
         config = load_config()
 
@@ -113,6 +114,13 @@ class RivotrilAgent:
         self.base_url = _resolve(base_url, "base_url", None)
         self.system_prompt = _resolve(system_prompt, "system_prompt", None)
         self.request_timeout = _resolve(request_timeout, "request_timeout", None)
+        self.max_output_tokens = _resolve(max_output_tokens, "max_output_tokens", None)
+        if self.max_output_tokens is not None and (
+            isinstance(self.max_output_tokens, bool)
+            or not isinstance(self.max_output_tokens, int)
+            or self.max_output_tokens < 1
+        ):
+            raise ValueError("max_output_tokens must be a positive integer or None")
         rate_limit_max_calls = _resolve(rate_limit_max_calls, "rate_limit_max_calls", 0.0)
         rate_limit_per_seconds = _resolve(rate_limit_per_seconds, "rate_limit_per_seconds", 1.0)
         retry_max_attempts = _resolve(retry_max_attempts, "retry_max_attempts", 3)
@@ -305,6 +313,8 @@ class RivotrilAgent:
         kwargs: dict[str, Any] = {}
         if self.request_timeout is not None:
             kwargs["timeout"] = self.request_timeout
+        if self.max_output_tokens is not None:
+            kwargs.update(self.provider.generation_limit_kwargs(self.max_output_tokens))
         return kwargs
 
     def _count_tokens(self, text: str) -> int:
@@ -350,6 +360,7 @@ class RivotrilAgent:
                 },
                 {"role": "user", "content": text},
             ],
+            **self._llm_call_kwargs(),
         )
         return response.text
 
@@ -642,6 +653,19 @@ class RivotrilAgent:
         self.cache.set(key, value, prompt=self._last_user_prompt(messages))
 
     def _build_cache_key(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None,
+        tools: list[Any] | None,
+    ) -> str:
+        return self._budget_cache_key(self._base_cache_key(messages, response_model, tools))
+
+    def _budget_cache_key(self, key: str) -> str:
+        if self.max_output_tokens is None:
+            return key
+        return _cache_fingerprint(f"{key}:max_output_tokens={self.max_output_tokens}")
+
+    def _base_cache_key(
         self,
         messages: list[Any],
         response_model: type[BaseModel] | None,

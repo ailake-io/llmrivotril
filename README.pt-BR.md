@@ -199,6 +199,8 @@ pytest -v --run-slow
 
 O workflow do GitHub Actions roda lint, type checking, testes e builds do pacote no Python 3.10–3.15.
 
+Configure `max_output_tokens` para limitar saída por geração no provider,
+incluindo continuações e resumos. Isso não é teto cumulativo de gastos.
 Configure `max_concurrent_calls` para limitar concorrência por agente. Feche
 streams explicitamente ao parar cedo; veja [confiabilidade](docs/reliability.pt-BR.md).
 
