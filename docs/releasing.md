@@ -48,11 +48,11 @@ immutable. Update the changelog and package version before creating a new tag.
 
 ## Current release status
 
-Version `0.1.5` contains the streaming/tool-execution performance improvements,
-the Ubuntu 26.04 CI migration, and the updated Ollama/local-model
-documentation. Merge the release PR into `main`, wait for the post-merge CI,
-then create and publish the `v0.1.5` GitHub Release to trigger the PyPI
-workflow. Verify the package on PyPI and run the Ollama smoke test locally.
+Version `0.1.6` contains the persistence/logging security hardening and the
+OIDC Trusted Publishing workflow. Merge the release PR into `main`, wait for
+the post-merge CI, then create and publish the `v0.1.6` GitHub Release to
+trigger the PyPI workflow. Verify the package on PyPI and confirm that the
+release was published through the configured Trusted Publisher.
 
 The CI toolchain is pinned in `.github/constraints-ci.txt`. This constrains
 linting, type checking, testing, and packaging tools without forcing exact

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-10
+
+### Security
+
+- Encrypt persisted conversation memory with Fernet and require an explicit
+  `RIVOTRIL_MEMORY_KEY` for new writes.
+- Remove sensitive exception details and model responses from example/log output.
+- Use keyed SHA3 cache fingerprints so prompt contents are not exposed in cache
+  identifiers.
+- Migrate PyPI publishing to GitHub OIDC Trusted Publishing with attestations.
+
+### Validation
+
+- Local test suite: 361 passed, 22 skipped; Ruff and mypy passed.
+
 ## [0.1.5] - 2026-11-09
 
 ### Added

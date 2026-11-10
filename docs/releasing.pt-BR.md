@@ -48,9 +48,8 @@ nova tag.
 
 ## Status atual do release
 
-A versão `0.1.5` contém as melhorias de performance de streaming e execução de
-tools, a migração da CI para Ubuntu 26.04 e a documentação atualizada de
-Ollama/modelos locais. Faça o merge da PR de release na `main`, aguarde a CI
-pós-merge e então crie e publique o GitHub Release `v0.1.5` para disparar o
-workflow do PyPI. Confirme o pacote no PyPI e rode o smoke test do Ollama
-localmente.
+A versão `0.1.6` contém o hardening de segurança de persistência/logs e o
+workflow de Trusted Publishing via OIDC. Faça o merge da PR de release na
+`main`, aguarde a CI pós-merge e então crie e publique o GitHub Release
+`v0.1.6` para disparar o workflow do PyPI. Confirme no PyPI que a release foi
+publicada pelo Trusted Publisher configurado.
