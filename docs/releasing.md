@@ -20,7 +20,7 @@
 
 ## PyPI release
 
-The repository contains `.github/workflows/release.yml`, which builds the
+The repository contains `.github/workflows/pypi-publish.yml`, which builds the
 wheel and source distribution and publishes them with the legacy PyPI API
 token stored as the `PYPI_API_TOKEN` repository secret. Trusted Publishing is
 temporarily paused because GitHub Actions is returning an unexplained

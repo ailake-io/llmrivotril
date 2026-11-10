@@ -18,7 +18,7 @@
 
 ## Release no PyPI
 
-O repositório contém `.github/workflows/release.yml`, que constrói o wheel e a
+O repositório contém `.github/workflows/pypi-publish.yml`, que constrói o wheel e a
 source distribution e publica usando o token legado do PyPI armazenado como
 secret `PYPI_API_TOKEN`. O Trusted Publishing está temporariamente pausado
 porque o GitHub Actions retorna `startup_failure` sem jobs no workflow OIDC.
