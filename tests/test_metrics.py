@@ -1,5 +1,7 @@
 import threading
 
+import pytest
+
 from llmrivotril.metrics import MetricsCollector
 
 
@@ -49,6 +51,30 @@ def test_log_history_cap():
         metrics.log_execution(f"prompt {i}", "response", tokens=1, latency=0.01)
     summary = metrics.get_summary()
     assert len(summary["logs"]) == 100
+
+
+def test_log_history_limit_is_configurable():
+    metrics = MetricsCollector(max_logs=2)
+    for i in range(4):
+        metrics.log_execution(f"prompt {i}", "response", tokens=1, latency=0.01)
+
+    logs = metrics.get_summary()["logs"]
+    assert len(logs) == 2
+    assert logs[0]["prompt"] == "prompt 3"
+
+
+def test_zero_log_history_keeps_counters_only():
+    metrics = MetricsCollector(max_logs=0)
+    metrics.log_execution("prompt", "response", tokens=1, latency=0.01)
+
+    summary = metrics.get_summary()
+    assert summary["requests_total"] == 1
+    assert summary["logs"] == []
+
+
+def test_negative_log_history_limit_rejected():
+    with pytest.raises(ValueError, match="max_logs"):
+        MetricsCollector(max_logs=-1)
 
 
 def test_reset():

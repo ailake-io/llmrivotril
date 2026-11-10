@@ -25,6 +25,10 @@ metrics = MetricsCollector()
 metrics.load_metrics("metrics.json")
 ```
 
+`MetricsCollector(max_logs=100)` limita o histórico de auditoria mantido em
+memória. Use `max_logs=0` quando precisar apenas dos contadores agregados e não
+quiser manter o conteúdo das requisições no processo.
+
 ## Dashboard local
 
 Inicie o dashboard de telemetria:

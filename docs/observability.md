@@ -24,6 +24,10 @@ metrics = MetricsCollector()
 metrics.load_metrics("metrics.json")
 ```
 
+`MetricsCollector(max_logs=100)` bounds the in-memory audit trail. Set
+`max_logs=0` when only aggregate counters are needed and request content must
+not be retained in the process.
+
 ## Local Dashboard
 
 Start the telemetry dashboard:

@@ -71,6 +71,23 @@ def test_agent_without_response_model():
     assert agent.memory.get_context()[-1]["role"] == "assistant"
 
 
+def test_agent_rejects_prompt_above_character_limit():
+    agent, _ = _make_agent(max_prompt_chars=4)
+
+    with pytest.raises(ValueError, match="max_prompt_chars"):
+        agent.run("12345")
+
+
+def test_agent_token_count_is_cached():
+    agent, _ = _make_agent()
+    agent._token_count_cache.clear()
+
+    with patch.object(agent.tokenizer, "encode", wraps=agent.tokenizer.encode) as encode:
+        assert agent._count_tokens("repeat") == agent._count_tokens("repeat")
+
+    assert encode.call_count == 1
+
+
 def test_agent_preserves_multimodal_prompt_for_provider_and_text_projection_for_memory():
     agent, provider = _make_agent()
     provider._complete_mock.return_value = ProviderResponse(content="I see an image.")
