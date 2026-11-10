@@ -12,3 +12,7 @@ class HallucinationDetectedError(LLMRivotrilError):
 
 class TokenBudgetExceededError(LLMRivotrilError):
     """Raised when a run would exceed the configured token budget."""
+
+
+class CostBudgetExceededError(LLMRivotrilError):
+    """Raised before a generation would exceed the local financial reservation."""

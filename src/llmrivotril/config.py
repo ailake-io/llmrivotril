@@ -29,6 +29,9 @@ except ImportError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
 _ENV_FLOATS = {
+    "RIVOTRIL_MAX_SESSION_COST_USD",
+    "RIVOTRIL_INPUT_PRICE_PER_MILLION",
+    "RIVOTRIL_OUTPUT_PRICE_PER_MILLION",
     "RIVOTRIL_REQUEST_TIMEOUT",
     "RIVOTRIL_RATE_LIMIT_MAX_CALLS",
     "RIVOTRIL_RATE_LIMIT_PER_SECONDS",

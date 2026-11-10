@@ -57,3 +57,12 @@ def test_bedrock_anthropic_model_id_resolves_via_vendor_prefix():
 
 def test_bedrock_unknown_vendor_prefix_returns_none():
     assert get_model_pricing("bedrock", "meta.llama3-70b-instruct-v1:0") is None
+
+
+def test_versioned_model_uses_longest_prefix_and_returns_copy():
+    from llmrivotril.pricing import get_model_pricing
+
+    prices = get_model_pricing("openai", "gpt-4o-mini-2024-07-18")
+    assert prices == get_model_pricing("openai", "gpt-4o-mini")
+    prices["input"] = -1
+    assert get_model_pricing("openai", "gpt-4o-mini")["input"] >= 0

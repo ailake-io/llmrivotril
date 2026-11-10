@@ -157,7 +157,40 @@ usar a opção. O padrão `None` preserva o comportamento existente. Um limite
 baixo pode truncar JSON ou argumentos de ferramentas; tokens de raciocínio
 também podem contar, conforme o provider. Retries e novas rodadas recebem
 orçamentos separados: não é reserva cumulativa, teto em dólares nem contabilidade
-completa. O custo dos resumos internos ainda não integra a telemetria da requisição.
+completa por si só. Todas as gerações visíveis, incluindo resumos internos,
+agora aparecem na telemetria `provider_usage`.
+
+### Reservas financeiras locais por sessão
+
+Configure juntos `max_session_cost_usd`, `max_output_tokens`,
+`input_price_per_million` e `output_price_per_million`. As tarifas são USD por
+milhão de tokens e devem corresponder ao seu contrato. Exemplo ilustrativo:
+
+```python
+agent = RivotrilAgent(
+    max_output_tokens=256,
+    max_session_cost_usd=0.02,
+    input_price_per_million=1.0,   # exemplo, não é cotação de um provider
+    output_price_per_million=2.0,
+)
+```
+
+Antes de cada chamada ao SDK, o agente reserva atomicamente uma estimativa da
+entrada serializada, uma margem de 256 tokens e o máximo de saída. Sem saldo,
+`CostBudgetExceededError` impede a chamada. Retries visíveis, continuações,
+reparos e resumos reservam separadamente; cache hits não chamam o provider.
+Uso completo informado pelo SDK ajusta a reserva. Falhas, uso incompleto e
+streams cancelados mantêm toda a reserva. `agent.session_budget.summary()`
+mostra valores comprometidos/reservados e eventual consumo superior à estimativa.
+
+Reservas financeiras exigem clientes novos dos SDKs OpenAI/Azure compatíveis
+embutidos e mensagens somente de texto. Retries internos do SDK são desativados;
+o instructor recebe uma tentativa por chamada estruturada reservada. Outros
+providers geram erro explícito ao ativar esse modo. O controle fica em memória
+por agente, sem distribuição nem restauração pelo arquivo de métricas. É um
+limite estimado local, não garantia da fatura: tokenizadores, tarifas, taxas,
+comportamento do provider, ferramentas e chamadas externas podem divergir.
+Use limites do próprio provider para um teto oficial de conta.
 
 Use `RivotrilAgent(max_concurrent_calls=2)` para limitar chamadas simultâneas
 desse agente, incluindo streams. Cache hits não ocupam uma vaga. A vaga cobre

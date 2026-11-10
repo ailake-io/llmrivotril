@@ -812,6 +812,32 @@ def test_agent_repairs_invalid_structured_response():
     assert provider._complete_mock.call_count == 2
 
 
+def test_provider_accounting_counts_repairs_and_summaries_but_not_cache_hits():
+    from llmrivotril import InMemoryCache
+    from llmrivotril.metrics import MetricsCollector
+
+    metrics = MetricsCollector(include_content=False)
+    agent, provider = _make_agent(metrics=metrics, schema_repair_attempts=1, cache=InMemoryCache())
+    provider._complete_mock.side_effect = [
+        ProviderResponse(content='{"text": 123}'),
+        ProviderResponse(content='{"text": "good"}'),
+        ProviderResponse(content="summary"),
+    ]
+    assert agent.run("question", response_model=Answer).text == "good"
+    assert metrics.get_summary()["provider_usage"]["calls"] == 2
+    assert agent._summarize_history("history") == "summary"
+    assert metrics.get_summary()["provider_usage"]["calls"] == 3
+    provider._complete_mock.side_effect = None
+    provider._complete_mock.return_value = ProviderResponse(content="cached")
+    agent.memory.clear()
+    agent.run("same")
+    calls = provider._complete_mock.call_count
+    agent.memory.clear()
+    agent.run("same")
+    assert provider._complete_mock.call_count == calls
+    assert metrics.get_summary()["provider_usage"]["calls"] == 4
+
+
 def test_agent_schema_repair_gives_up():
     agent, provider = _make_agent(schema_repair_attempts=1)
 

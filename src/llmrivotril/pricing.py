@@ -76,12 +76,12 @@ def get_model_pricing(provider: str, model: str) -> dict[str, float] | None:
             return None
 
         if model_lower in provider_prices:
-            return provider_prices[model_lower]
+            return provider_prices[model_lower].copy()
 
         # Try prefix matches (e.g. "gpt-4o-2024-08-06" -> "gpt-4o")
-        for known_model, prices in provider_prices.items():
+        for known_model in sorted(provider_prices, key=len, reverse=True):
             if model_lower.startswith(known_model):
-                return prices
+                return provider_prices[known_model].copy()
 
         return None
 

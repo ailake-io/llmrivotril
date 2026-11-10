@@ -4,13 +4,14 @@ import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import aclosing, closing
+from contextlib import aclosing, closing, contextmanager
 from threading import Lock
 from typing import Any, cast
 
 import tiktoken
 from pydantic import BaseModel, ValidationError
 
+from .budget import SessionBudget
 from .cache import BaseCache, DiskCache, _cache_fingerprint, cache_key
 from .concurrency import CapacityLimiter
 from .config import load_config
@@ -101,6 +102,9 @@ class RivotrilAgent:
         max_response_chars: Any = _UNSET,
         max_concurrent_calls: Any = _UNSET,
         max_output_tokens: Any = _UNSET,
+        max_session_cost_usd: Any = _UNSET,
+        input_price_per_million: Any = _UNSET,
+        output_price_per_million: Any = _UNSET,
     ) -> None:
         config = load_config()
 
@@ -115,6 +119,16 @@ class RivotrilAgent:
         self.system_prompt = _resolve(system_prompt, "system_prompt", None)
         self.request_timeout = _resolve(request_timeout, "request_timeout", None)
         self.max_output_tokens = _resolve(max_output_tokens, "max_output_tokens", None)
+        cost_limit = _resolve(max_session_cost_usd, "max_session_cost_usd", None)
+        input_price = _resolve(input_price_per_million, "input_price_per_million", None)
+        output_price = _resolve(output_price_per_million, "output_price_per_million", None)
+        self.session_budget: SessionBudget | None = None
+        if cost_limit is not None:
+            if self.max_output_tokens is None or input_price is None or output_price is None:
+                raise ValueError(
+                    "Cost budgets require max_output_tokens and explicit input/output prices"
+                )
+            self.session_budget = SessionBudget(cost_limit, input_price, output_price)
         if self.max_output_tokens is not None and (
             isinstance(self.max_output_tokens, bool)
             or not isinstance(self.max_output_tokens, int)
@@ -222,6 +236,18 @@ class RivotrilAgent:
             self.async_rate_limiter = AsyncRateLimiter(rate_limit_max_calls, rate_limit_per_seconds)
 
         retry_exceptions = self.provider.retryable_exceptions()
+        if self.session_budget is not None:
+            # Hidden SDK retries cannot receive independent cost reservations.
+            if not isinstance(self.provider, OpenAIProvider):
+                raise ValueError(
+                    "Financial reservations currently require an OpenAI-compatible provider"
+                )
+            if (
+                self.provider._base_client is not None
+                or self.provider._async_base_client is not None
+            ):
+                raise ValueError("Cost budgets require fresh SDK clients with retries disabled")
+            self.provider.extra_kwargs["max_retries"] = 0
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=circuit_failure_threshold,
             recovery_timeout=circuit_recovery_timeout,
@@ -338,6 +364,67 @@ class RivotrilAgent:
         if self.max_response_chars is not None and size > self.max_response_chars:
             raise GuardrailViolationError("Response exceeds max_response_chars limit")
 
+    @contextmanager
+    def _generation(self, kwargs: dict[str, Any]) -> Generator[dict[str, Any], None, None]:
+        # Include schemas and message framing in the local input estimate.
+        serialized = json.dumps(kwargs, default=str, ensure_ascii=False)
+        schema = kwargs.get("response_model")
+        if schema is not None:
+            serialized += json.dumps(schema.model_json_schema())
+        input_tokens = self._count_tokens(serialized) + 256
+        budget = self.session_budget
+        if budget and any(
+            not isinstance(m.get("content", ""), str) for m in kwargs.get("messages", [])
+        ):
+            raise ValueError("Financial reservations currently support text-only messages")
+        reservation = budget.reserve(input_tokens, self.max_output_tokens) if budget else None
+        state: dict[str, Any] = {"response": None, "chunks": [], "usage": None}
+        failed = True
+        try:
+            yield state
+            failed = False
+        finally:
+            response = state["response"]
+            reported_in = getattr(response, "prompt_tokens", None)
+            reported_out = getattr(response, "completion_tokens", None)
+            if state["usage"] is not None:
+                reported_in, reported_out = state["usage"]
+            estimated = reported_in is None or reported_out is None
+            output_text = response.text if response is not None else "".join(state["chunks"])
+            if response is not None and getattr(response, "tool_calls", None):
+                output_text += json.dumps(
+                    [
+                        {"name": c.name, "arguments": c.arguments}
+                        for c in normalize_tool_calls(response)
+                    ]
+                )
+            actual_in = reported_in if reported_in is not None else input_tokens
+            actual_out = (
+                reported_out if reported_out is not None else self._count_tokens(output_text)
+            )
+            cost = None
+            if budget is not None and reservation is not None:
+                actual_cost = None if estimated or failed else budget.cost(actual_in, actual_out)
+                budget.settle(reservation, actual_cost)
+                cost = float(reservation if actual_cost is None else actual_cost)
+            elif self.track_costs:
+                cost = estimate_cost(self.provider.name, self.model, actual_in, actual_out)
+            self.metrics.log_provider_usage(actual_in, actual_out, failed, estimated, cost)
+
+    def _provider_complete(self, **kwargs: Any) -> Any:
+        if self.session_budget is not None and kwargs.get("response_model") is not None:
+            kwargs["max_retries"] = 1
+        with self._generation(kwargs) as state:
+            state["response"] = self.provider.complete(**kwargs)
+            return state["response"]
+
+    async def _provider_acomplete(self, **kwargs: Any) -> Any:
+        if self.session_budget is not None and kwargs.get("response_model") is not None:
+            kwargs["max_retries"] = 1
+        with self._generation(kwargs) as state:
+            state["response"] = await self.provider.acomplete(**kwargs)
+            return state["response"]
+
     def _summarize_history(self, text: str) -> str:
         """Compact old memory turns into a short summary via a direct provider call.
 
@@ -347,7 +434,7 @@ class RivotrilAgent:
         as "skip this round's summary" rather than a fatal error. Only used
         when ``memory_summarize=True`` is explicitly passed.
         """
-        response = self.provider.complete(
+        response = self._provider_complete(
             model=self.model,
             messages=[
                 {
@@ -362,7 +449,7 @@ class RivotrilAgent:
             ],
             **self._llm_call_kwargs(),
         )
-        return response.text
+        return cast(str, response.text)
 
     def _redact(self, text: PromptContent) -> PromptContent:
         if not self.redact_pii:
@@ -379,6 +466,15 @@ class RivotrilAgent:
         """
         if not self.redact_pii or not isinstance(response, ProviderResponse):
             return response
+        if response.tool_calls:
+            response.tool_calls = [
+                {
+                    "id": call.id,
+                    "name": call.name,
+                    "arguments": json.loads(self.pii_redactor.redact(json.dumps(call.arguments))),
+                }
+                for call in normalize_tool_calls(response)
+            ]
         if response.structured is not None:
             model_cls = response_model or type(response.structured)
             redacted_json = self.pii_redactor.redact(response.structured.model_dump_json())
@@ -395,6 +491,8 @@ class RivotrilAgent:
     ) -> float | None:
         if not self.track_costs:
             return None
+        if self._last_cache_hit:
+            return 0.0
 
         provider_name = getattr(self.provider, "name", "base")
         prompt_tokens: int | None = getattr(response, "prompt_tokens", None)
@@ -573,7 +671,7 @@ class RivotrilAgent:
     def _execute_structured(
         self, messages: list[Any], response_model: type[BaseModel], tools: list[Any] | None
     ) -> Any:
-        response = self.provider.complete(
+        response = self._provider_complete(
             model=self.model,
             response_model=response_model,
             messages=messages,
@@ -583,7 +681,7 @@ class RivotrilAgent:
         return response
 
     def _execute_unstructured(self, messages: list[Any], tools: list[Any] | None) -> Any:
-        response = self.provider.complete(
+        response = self._provider_complete(
             model=self.model,
             messages=messages,
             tools=tools,
@@ -594,7 +692,7 @@ class RivotrilAgent:
     async def _execute_structured_async(
         self, messages: list[Any], response_model: type[BaseModel], tools: list[Any] | None
     ) -> Any:
-        response = await self.provider.acomplete(
+        response = await self._provider_acomplete(
             model=self.model,
             response_model=response_model,
             messages=messages,
@@ -606,7 +704,7 @@ class RivotrilAgent:
     async def _execute_unstructured_async(
         self, messages: list[Any], tools: list[Any] | None
     ) -> Any:
-        response = await self.provider.acomplete(
+        response = await self._provider_acomplete(
             model=self.model,
             messages=messages,
             tools=tools,
@@ -932,6 +1030,8 @@ class RivotrilAgent:
         response_model: type[BaseModel] | None = None,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
+        execute_tools: bool = True,
+        return_provider_response: bool = False,
     ) -> Any:
         start_time = time.time()
         guardrail_blocked = False
@@ -959,7 +1059,7 @@ class RivotrilAgent:
                     messages, response_model, tools=tool_registry.schemas if tool_registry else None
                 )
 
-            if tool_registry is not None and response_model is None:
+            if tool_registry is not None and response_model is None and execute_tools:
                 response = await self._handle_tool_calls_async(response, messages, tool_registry)
 
             if response_model is not None:
@@ -975,10 +1075,23 @@ class RivotrilAgent:
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
             cost_usd = self._estimate_execution_cost(response, messages, response_text)
+            if return_provider_response and normalize_tool_calls(response):
+                tool_payload = json.dumps(
+                    [
+                        {"name": call.name, "arguments": call.arguments}
+                        for call in normalize_tool_calls(response)
+                    ]
+                )
+                for guardrail in self.guardrails:
+                    guardrail.validate_output(tool_payload, model=self.model)
+                self._check_response_size(len(tool_payload))
+                return response
             self._run_post_generation(
                 content_to_text(prompt), response_text, response, context_sources
             )
             logger.info("Agent async run completed successfully")
+            if return_provider_response:
+                return response
             if response_model is not None:
                 return response.structured
             return response_text
@@ -1078,14 +1191,23 @@ class RivotrilAgent:
         """
         tool_call_deltas: dict[int, dict[str, Any]] = {}
         stream_kwargs = self._llm_call_kwargs()
+        if isinstance(self.provider, OpenAIProvider) and (self.track_costs or self.session_budget):
+            stream_kwargs["stream_options"] = {"include_usage": True}
         if tool_registry is not None:
             stream_kwargs["tools"] = tool_registry.schemas
-        with self._capacity.slot():
+        with (
+            self._capacity.slot(),
+            self._generation({"messages": messages, **stream_kwargs}) as state,
+        ):
             stream = self.provider.stream(model=self.model, messages=messages, **stream_kwargs)
             try:
                 for chunk in stream:
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None:
+                        state["usage"] = (usage.prompt_tokens, usage.completion_tokens)
                     content = self._extract_stream_content(chunk, tool_call_deltas)
                     if content:
+                        state["chunks"].append(content)
                         yield content
             finally:
                 close = getattr(stream, "close", None)
@@ -1108,19 +1230,26 @@ class RivotrilAgent:
         """
         tool_call_deltas: dict[int, dict[str, Any]] = {}
         stream_kwargs = self._llm_call_kwargs()
+        if isinstance(self.provider, OpenAIProvider) and (self.track_costs or self.session_budget):
+            stream_kwargs["stream_options"] = {"include_usage": True}
         if tool_registry is not None:
             stream_kwargs["tools"] = tool_registry.schemas
         async with self._capacity.async_slot():
-            stream = self.provider.astream(model=self.model, messages=messages, **stream_kwargs)
-            try:
-                async for chunk in stream:
-                    content = self._extract_stream_content(chunk, tool_call_deltas)
-                    if content:
-                        yield content
-            finally:
-                close = getattr(stream, "aclose", None)
-                if close is not None:
-                    await close()
+            with self._generation({"messages": messages, **stream_kwargs}) as state:
+                stream = self.provider.astream(model=self.model, messages=messages, **stream_kwargs)
+                try:
+                    async for chunk in stream:
+                        usage = getattr(chunk, "usage", None)
+                        if usage is not None:
+                            state["usage"] = (usage.prompt_tokens, usage.completion_tokens)
+                        content = self._extract_stream_content(chunk, tool_call_deltas)
+                        if content:
+                            state["chunks"].append(content)
+                            yield content
+                finally:
+                    close = getattr(stream, "aclose", None)
+                    if close is not None:
+                        await close()
 
         if tool_call_deltas and tool_registry is not None:
             fake_response = ProviderResponse(

@@ -45,6 +45,16 @@ Limites opcionais de contexto, anexos serializados e resposta adicionados.
 
 ## Pontos positivos
 
+Atualização da rodada local: foram adicionados reservas financeiras por agente,
+contabilidade `provider_usage` das gerações visíveis e benchmark comparativo
+sintético. O adapter AG2 agora devolve ferramentas para execução pelo
+orquestrador, valida schemas e envia eventos de streaming textual; o teste
+usa `ag2.Agent` e ferramenta reais com provider local. A versão mínima do
+extra é 1.3.0/Python 3.11. As notas históricas abaixo que diziam que essas
+funcionalidades não existiam devem ser lidas como estado da revisão original.
+As reservas são estimativas locais, não garantia da fatura nem limite global
+distribuído; consulte as restrições atuais em `reliability.md`.
+
 - Estrutura `src/` adequada para distribuição como pacote Python.
 - API síncrona, assíncrona e de streaming.
 - Guardrails locais, moderação, verificação de grounding, memória, cache e

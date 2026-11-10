@@ -153,8 +153,41 @@ OpenAI-compatible endpoints must support `max_completion_tokens` to use this
 option. The default `None` preserves existing provider behavior. A low budget
 can truncate JSON or tool arguments; provider reasoning tokens may also count
 toward the limit. Retries and additional rounds have separate budgets: this is
-not a cumulative token reservation, dollar cap or complete usage accounting.
-Internal summarization costs are still not included in request telemetry.
+not a cumulative financial cap on its own. All visible generation invocations,
+including internal summaries, now appear in `provider_usage` telemetry.
+
+### Local session cost reservations
+
+Set `max_session_cost_usd`, `max_output_tokens`, `input_price_per_million` and
+`output_price_per_million` together. Prices are explicit USD per million tokens;
+use your own provider contract, not an assumed live price. For example:
+
+```python
+agent = RivotrilAgent(
+    max_output_tokens=256,
+    max_session_cost_usd=0.02,
+    input_price_per_million=1.0,   # illustrative, not a provider price quote
+    output_price_per_million=2.0,
+)
+```
+
+Before each SDK invocation the agent atomically reserves estimated serialized
+input tokens plus a 256-token framing allowance and the maximum output budget.
+If funds are insufficient, `CostBudgetExceededError` prevents the call. Visible
+retries, tool follow-ups, schema repairs and summaries reserve independently;
+cache hits make no provider calls. Complete reported usage settles the reserve.
+Failures, incomplete usage and cancelled streams retain the entire reservation.
+Inspect `agent.session_budget.summary()` for committed/reserved amounts and an
+overrun flag if reported consumption exceeded the local estimate.
+
+Financial reservations currently require fresh built-in OpenAI/Azure-compatible
+SDK clients and text-only messages. Hidden SDK retries are disabled; instructor
+gets one attempt per reserved structured call. Other provider types fail fast
+when financial reservations are enabled. This ledger is in memory per agent,
+not distributed or restored by metrics persistence. It is a local estimated
+spending boundary, not a guarantee of provider invoicing: different tokenizers,
+fees, prices, provider behavior, tool charges and external calls can differ.
+Use provider-side spending controls for an authoritative account-wide cap.
 
 Use `RivotrilAgent(max_concurrent_calls=2)` to bound overlapping provider calls
 from that agent, including streams. Cache hits do not occupy a slot. The slot

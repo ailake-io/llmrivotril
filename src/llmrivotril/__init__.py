@@ -2,6 +2,7 @@ from .agent import AsyncStreamedStructuredResult, RivotrilAgent, StreamedStructu
 from .cache import BaseCache, DiskCache, InMemoryCache, RedisCache
 from .content import PromptContent
 from .exceptions import (
+    CostBudgetExceededError,
     GuardrailViolationError,
     HallucinationDetectedError,
     LLMRivotrilError,
@@ -61,6 +62,7 @@ __all__ = [
     "GuardrailViolationError",
     "HallucinationDetectedError",
     "TokenBudgetExceededError",
+    "CostBudgetExceededError",
     "discover_plugins",
     "load_plugins",
     "estimate_cost",

@@ -37,6 +37,37 @@ class MetricsCollector:
         self.auto_save_path = auto_save_path
         self.max_logs = max_logs
         self.include_content = include_content
+        self.provider_usage: dict[str, float | int] = {
+            "calls": 0,
+            "failures": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "estimated_calls": 0,
+            "unpriced_calls": 0,
+            "cost_usd": 0.0,
+        }
+
+    def log_provider_usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        failed: bool,
+        estimated: bool,
+        cost_usd: float | None,
+    ) -> None:
+        """Track every visible SDK invocation separately from user-facing runs."""
+        with self._lock:
+            for key, value in {
+                "calls": 1,
+                "failures": int(failed),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "estimated_calls": int(estimated),
+                "unpriced_calls": int(cost_usd is None),
+                "cost_usd": cost_usd or 0.0,
+            }.items():
+                self.provider_usage[key] += value
+        self._maybe_auto_save()
 
     def log_execution(
         self,
@@ -110,6 +141,7 @@ class MetricsCollector:
             self._latency_total = 0.0
             self._latency_count = 0
             self.logs.clear()
+            self.provider_usage = dict.fromkeys(self.provider_usage, 0)
 
     def get_summary(self) -> dict[str, Any]:
         with self._lock:
@@ -131,6 +163,7 @@ class MetricsCollector:
                 "total_tokens_consumed": self.total_tokens_consumed,
                 "total_cost_usd": self.total_cost_usd,
                 "avg_latency": round(avg_latency, 3),
+                "provider_usage": self.provider_usage.copy(),
                 "success_rate": round(success_rate, 2),
                 "logs": deepcopy(self.logs),
             }
@@ -149,6 +182,7 @@ class MetricsCollector:
                 "latencies": self.latencies.copy(),
                 "latency_total": self._latency_total,
                 "latency_count": self._latency_count,
+                "provider_usage": self.provider_usage.copy(),
                 "logs": deepcopy(self.logs),
             }
 
@@ -162,6 +196,9 @@ class MetricsCollector:
             self.cache_hits = data.get("cache_hits", 0)
             self.total_tokens_consumed = data.get("total_tokens_consumed", 0)
             self.total_cost_usd = data.get("total_cost_usd", None)
+            self.provider_usage = {
+                key: data.get("provider_usage", {}).get(key, 0) for key in self.provider_usage
+            }
             samples = data.get("latencies", [])
             self._latency_total = data.get("latency_total", sum(samples))
             self._latency_count = data.get("latency_count", len(samples))

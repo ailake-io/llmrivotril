@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Session reservations, accounting, AG2 and local comparisons
+
+- Add atomic `max_session_cost_usd` reservations with explicit rates, output
+  bounds and fail-closed admission for supported text-only OpenAI/Azure clients.
+  Failed or incomplete usage retains the reserve; provider invoices can differ.
+- Add persisted `provider_usage` counters for all visible generation invocations,
+  including repairs, tool follow-ups, summaries, failures and streaming; distinguish
+  estimated usage and missing prices. Cache hits are not provider calls.
+- Add AG2 function-call events, ResponseProto validation and native text-stream
+  events. Validate real local Agent/tool execution with AG2 1.3.0; require
+  `ag2>=1.3.0` (the optional extra requires Python 3.11+).
+- Add `scripts/compare_local.py` and bilingual comparison documentation.
+- Fix longest-prefix model pricing and prevent mutation through pricing lookups.
+- Validation: 429 passed, 18 skipped in a Python 3.14 venv with AG2 1.3.0;
+  Ruff, formatting and mypy passed. Synthetic benchmark: exact cache reduced
+  30 provider calls to 1, with identical fixture answers; no real billing claim.
+
 ### Generation budgets
 
 - Add optional `max_output_tokens` with native mappings for all six providers,
