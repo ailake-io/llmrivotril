@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Clarify the feature name as "estimated session cost limit"; preserve
+  `max_session_cost_usd`, `SessionBudget` and `CostBudgetExceededError` API names.
+
 ### Session reservations, accounting, AG2 and local comparisons
 
 - Add atomic `max_session_cost_usd` reservations with explicit rates, output

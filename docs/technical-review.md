@@ -45,7 +45,7 @@ Limites opcionais de contexto, anexos serializados e resposta adicionados.
 
 ## Pontos positivos
 
-Atualização da rodada local: foram adicionados reservas financeiras por agente,
+Atualização da rodada local: foram adicionados limites estimados de custo por agente,
 contabilidade `provider_usage` das gerações visíveis e benchmark comparativo
 sintético. O adapter AG2 agora devolve ferramentas para execução pelo
 orquestrador, valida schemas e envia eventos de streaming textual; o teste

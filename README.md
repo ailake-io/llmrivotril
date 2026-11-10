@@ -211,7 +211,8 @@ The GitHub Actions workflow runs linting, type checking, tests, and package buil
 Set `max_output_tokens` for a native per-generation output budget, including
 follow-ups and summaries. This is not a cumulative spending cap.
 For supported text-only OpenAI/Azure sessions, `max_session_cost_usd` plus
-explicit input/output prices enables atomic local cost reservations. See
+explicit input/output prices enables an estimated session cost limit using
+atomic local reservations. See
 [reservation limits and accounting](docs/reliability.md); provider billing can
 still differ from local estimates. `provider_usage` tracks additional calls.
 AG2 supports function-tool events, structured validation and text streaming

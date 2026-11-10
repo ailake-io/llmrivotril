@@ -240,7 +240,7 @@ class RivotrilAgent:
             # Hidden SDK retries cannot receive independent cost reservations.
             if not isinstance(self.provider, OpenAIProvider):
                 raise ValueError(
-                    "Financial reservations currently require an OpenAI-compatible provider"
+                    "Estimated session cost limits currently require an OpenAI-compatible provider"
                 )
             if (
                 self.provider._base_client is not None
@@ -376,7 +376,7 @@ class RivotrilAgent:
         if budget and any(
             not isinstance(m.get("content", ""), str) for m in kwargs.get("messages", [])
         ):
-            raise ValueError("Financial reservations currently support text-only messages")
+            raise ValueError("Estimated session cost limits currently support text-only messages")
         reservation = budget.reserve(input_tokens, self.max_output_tokens) if budget else None
         state: dict[str, Any] = {"response": None, "chunks": [], "usage": None}
         failed = True

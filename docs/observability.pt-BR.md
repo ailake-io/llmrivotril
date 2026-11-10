@@ -12,7 +12,7 @@ e `cost_usd`. Inclui reparos, continuações de ferramentas e resumos de memóri
 cache hits não entram. Streaming usa o consumo OpenAI informado quando existe,
 ou estimativas. Custos exigem `track_costs=True` ou tarifas explícitas do orçamento;
 preço desconhecido entra em `unpriced_calls`, não significa chamada gratuita.
-Com orçamento financeiro, uso desconhecido mantém a reserva conservadora.
+Com limite estimado de custo por sessão, uso desconhecido mantém a reserva conservadora.
 Esses agregados são persistidos e zerados com as métricas. Não os some aos
 campos legados por requisição `total_cost_usd`/`tokens`. Retries internos opacos,
 ferramentas externas e taxas do provider não equivalem a uma fatura.

@@ -15,4 +15,4 @@ class TokenBudgetExceededError(LLMRivotrilError):
 
 
 class CostBudgetExceededError(LLMRivotrilError):
-    """Raised before a generation would exceed the local financial reservation."""
+    """Raised before a generation would exceed the estimated session cost limit."""

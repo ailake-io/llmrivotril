@@ -51,7 +51,7 @@ Precedência: valores padrão do arquivo < variáveis de ambiente < argumentos d
 | `RIVOTRIL_MAX_RESPONSE_CHARS` | int | Máximo de caracteres da resposta (`max_response_chars`); verificado antes de entregar chunks e atualizar memória. Chunks já entregues continuam visíveis. |
 | `RIVOTRIL_MAX_CONCURRENT_CALLS` | int | Capacidade por agente compartilhada entre chamadas sync, async e streams (`max_concurrent_calls`); inteiro positivo ou `None` (sem limite). |
 | `RIVOTRIL_MAX_OUTPUT_TOKENS` | int | Limite nativo de geração por chamada (`max_output_tokens`); inteiro positivo ou `None`. Inclui continuações, reparos de schema, resumos e streaming. Não é teto de gasto por sessão. |
-| `RIVOTRIL_MAX_SESSION_COST_USD` | float | Limite local de reservas por sessão (`max_session_cost_usd`); exige tarifas e limite de saída explícitos. Veja as limitações em confiabilidade. |
+| `RIVOTRIL_MAX_SESSION_COST_USD` | float | Limite estimado de custo por sessão (`max_session_cost_usd`); exige tarifas e limite de saída explícitos. Não é garantia de teto na fatura do provider. Veja as limitações em confiabilidade. |
 | `RIVOTRIL_INPUT_PRICE_PER_MILLION` | float | Tarifa explícita em USD por milhão de tokens de entrada. |
 | `RIVOTRIL_OUTPUT_PRICE_PER_MILLION` | float | Tarifa explícita em USD por milhão de tokens de saída. |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Rejeita execuções que excederiam esse orçamento cumulativo. |

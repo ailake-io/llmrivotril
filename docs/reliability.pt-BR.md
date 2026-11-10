@@ -160,7 +160,7 @@ orçamentos separados: não é reserva cumulativa, teto em dólares nem contabil
 completa por si só. Todas as gerações visíveis, incluindo resumos internos,
 agora aparecem na telemetria `provider_usage`.
 
-### Reservas financeiras locais por sessão
+### Limite estimado de custo por sessão
 
 Configure juntos `max_session_cost_usd`, `max_output_tokens`,
 `input_price_per_million` e `output_price_per_million`. As tarifas são USD por
@@ -183,7 +183,7 @@ Uso completo informado pelo SDK ajusta a reserva. Falhas, uso incompleto e
 streams cancelados mantêm toda a reserva. `agent.session_budget.summary()`
 mostra valores comprometidos/reservados e eventual consumo superior à estimativa.
 
-Reservas financeiras exigem clientes novos dos SDKs OpenAI/Azure compatíveis
+O limite estimado de custo exige clientes novos dos SDKs OpenAI/Azure compatíveis
 embutidos e mensagens somente de texto. Retries internos do SDK são desativados;
 o instructor recebe uma tentativa por chamada estruturada reservada. Outros
 providers geram erro explícito ao ativar esse modo. O controle fica em memória

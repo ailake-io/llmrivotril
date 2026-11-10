@@ -12,7 +12,7 @@ and `cost_usd`. It includes repairs, tool continuations and memory summaries,
 and excludes cache hits. Streaming uses reported OpenAI usage when available;
 otherwise tokens are estimated. Prices require `track_costs=True` or explicit
 session-budget rates; unknown prices are counted as unpriced, not free calls.
-With a financial budget, unknown usage retains the conservative cost reserve.
+With an estimated session cost limit, unknown usage retains the conservative reserve.
 These aggregates are persisted/reset with metrics. They are separate from the
 legacy request-level `total_cost_usd`/`tokens`, which must not be added to them.
 Opaque retries inside SDKs, external tools and provider fees are not an invoice.

@@ -1,4 +1,4 @@
-"""Thread-safe local cost reservations, independent of provider billing."""
+"""Estimated session cost limits using thread-safe local reservations."""
 
 from decimal import Decimal
 from threading import Lock
@@ -8,6 +8,12 @@ from .exceptions import CostBudgetExceededError
 
 
 class SessionBudget:
+    """Prevent calls exceeding a local estimate, not a provider invoice cap.
+
+    Explicit token prices and reported usage determine local reservations.
+    Existing API names are retained for compatibility.
+    """
+
     def __init__(self, maximum: float, input_price: float, output_price: float) -> None:
         self.maximum = Decimal(str(maximum))
         self.input_price = Decimal(str(input_price))
@@ -28,7 +34,9 @@ class SessionBudget:
         amount = self.cost(input_tokens, output_tokens)
         with self._lock:
             if self._committed + self._reserved + amount > self.maximum:
-                raise CostBudgetExceededError("Generation would exceed local session cost budget")
+                raise CostBudgetExceededError(
+                    "Generation would exceed the estimated session cost limit"
+                )
             self._reserved += amount
         return amount
 

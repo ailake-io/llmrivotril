@@ -156,7 +156,7 @@ toward the limit. Retries and additional rounds have separate budgets: this is
 not a cumulative financial cap on its own. All visible generation invocations,
 including internal summaries, now appear in `provider_usage` telemetry.
 
-### Local session cost reservations
+### Estimated session cost limit
 
 Set `max_session_cost_usd`, `max_output_tokens`, `input_price_per_million` and
 `output_price_per_million` together. Prices are explicit USD per million tokens;
@@ -180,10 +180,10 @@ Failures, incomplete usage and cancelled streams retain the entire reservation.
 Inspect `agent.session_budget.summary()` for committed/reserved amounts and an
 overrun flag if reported consumption exceeded the local estimate.
 
-Financial reservations currently require fresh built-in OpenAI/Azure-compatible
+Estimated session cost limits currently require fresh built-in OpenAI/Azure-compatible
 SDK clients and text-only messages. Hidden SDK retries are disabled; instructor
 gets one attempt per reserved structured call. Other provider types fail fast
-when financial reservations are enabled. This ledger is in memory per agent,
+when estimated session cost limits are enabled. This ledger is in memory per agent,
 not distributed or restored by metrics persistence. It is a local estimated
 spending boundary, not a guarantee of provider invoicing: different tokenizers,
 fees, prices, provider behavior, tool charges and external calls can differ.
