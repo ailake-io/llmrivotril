@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make `MetricsCollector` log retention configurable with `max_logs`, including
   `max_logs=0` for aggregate-only telemetry.
 - Extend CI and package classifiers through Python 3.15.
+- Temporarily restore the previously working PyPI token workflow while GitHub
+  Actions reports an unexplained zero-job startup failure for Trusted Publishing.
 
 ## [0.1.6] - 2026-11-10
 

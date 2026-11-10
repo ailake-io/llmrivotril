@@ -20,9 +20,11 @@
 
 ## PyPI release
 
-The repository contains `.github/workflows/pypi-publish.yml`, which builds the
-wheel and source distribution in an isolated job and publishes them using
-PyPI Trusted Publishing (OIDC). No PyPI API token is stored in GitHub.
+The repository contains `.github/workflows/release.yml`, which builds the
+wheel and source distribution and publishes them with the legacy PyPI API
+token stored as the `PYPI_API_TOKEN` repository secret. Trusted Publishing is
+temporarily paused because GitHub Actions is returning an unexplained
+zero-job `startup_failure` for the OIDC workflow.
 
 One-time setup:
 
@@ -30,29 +32,22 @@ One-time setup:
    trusted publisher with:
    - owner: `ailake-io`
    - repository: `llmrivotril`
-   - workflow: `.github/workflows/pypi-publish.yml`
-   - environment: `pypi`
-2. In the repository's `pypi` environment, keep the five-minute wait timer and
-   restrict deployment tags to the release tags used by the project. Required
-   reviewers are optional for this single-maintainer project.
-3. After a successful OIDC publication, revoke the legacy `PYPI_API_TOKEN`
-   secret/token used by the previous workflow.
+   - secret: `PYPI_API_TOKEN` configured in repository Actions secrets
+2. In the repository's `pypi` environment, keep the five-minute wait timer.
 
 After setup, publishing a GitHub Release from a version tag triggers the
-workflow automatically. The official PyPA publish action also creates PyPI
-publish attestations by default. A rerun must use a new version if any files
-were already uploaded, because PyPI release files are immutable.
+workflow automatically. A rerun must use a new version if any files were
+already uploaded, because PyPI release files are immutable.
 
 Do not reuse a version that has already been uploaded: PyPI release files are
 immutable. Update the changelog and package version before creating a new tag.
 
 ## Current release status
 
-Version `0.1.6` contains the persistence/logging security hardening and the
-OIDC Trusted Publishing workflow. Merge the release PR into `main`, wait for
-the post-merge CI, then create and publish the `v0.1.6` GitHub Release to
-trigger the PyPI workflow. Verify the package on PyPI and confirm that the
-release was published through the configured Trusted Publisher.
+Version `0.1.6` contains the persistence/logging security hardening. Merge the
+release PR into `main`, wait for the post-merge CI, then create and publish the
+`v0.1.6` GitHub Release to trigger the PyPI workflow. Verify the package on
+PyPI.
 
 The CI toolchain is pinned in `.github/constraints-ci.txt`. This constrains
 linting, type checking, testing, and packaging tools without forcing exact
