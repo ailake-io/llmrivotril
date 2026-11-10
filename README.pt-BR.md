@@ -197,7 +197,7 @@ pytest -v --run-slow
 
 ![CI](https://github.com/ailake-io/llmrivotril/workflows/CI/badge.svg)
 
-O workflow do GitHub Actions roda lint, type checking, testes e builds do pacote no Python 3.10–3.13.
+O workflow do GitHub Actions roda lint, type checking, testes e builds do pacote no Python 3.10–3.15.
 
 ## Licença
 

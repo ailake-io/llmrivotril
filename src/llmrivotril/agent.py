@@ -80,6 +80,7 @@ class RivotrilAgent:
         circuit_recovery_timeout: Any = _UNSET,
         max_session_tokens: Any = _UNSET,
         max_prompt_tokens: Any = _UNSET,
+        max_prompt_chars: Any = _UNSET,
         provider: str | BaseProvider | None = None,
         plugins: list[Any] | str | None = None,
         metrics_path: Any = _UNSET,
@@ -120,8 +121,13 @@ class RivotrilAgent:
 
         self.max_session_tokens = _resolve(max_session_tokens, "max_session_tokens", None)
         self.max_prompt_tokens = _resolve(max_prompt_tokens, "max_prompt_tokens", None)
+        self.max_prompt_chars = _resolve(max_prompt_chars, "max_prompt_chars", None)
+        if self.max_prompt_chars is not None and self.max_prompt_chars <= 0:
+            raise ValueError("max_prompt_chars must be positive when configured")
         self._session_tokens_used = 0
         self._session_tokens_lock = Lock()
+        self._token_count_cache: dict[str, int] = {}
+        self._token_count_cache_lock = Lock()
         # Set by _call_llm/_call_llm_async on every invocation, reset at the
         # start of run()/run_async() -- reported to metrics so a cache hit is
         # visible directly instead of only inferable from latency.
@@ -285,7 +291,17 @@ class RivotrilAgent:
         return kwargs
 
     def _count_tokens(self, text: str) -> int:
-        return len(self.tokenizer.encode(text))
+        with self._token_count_cache_lock:
+            cached = self._token_count_cache.get(text)
+            if cached is not None:
+                return cached
+
+        count = len(self.tokenizer.encode(text))
+        with self._token_count_cache_lock:
+            if len(self._token_count_cache) >= 4096:
+                self._token_count_cache.pop(next(iter(self._token_count_cache)))
+            self._token_count_cache[text] = count
+        return count
 
     def _summarize_history(self, text: str) -> str:
         """Compact old memory turns into a short summary via a direct provider call.
@@ -472,7 +488,13 @@ class RivotrilAgent:
         self, prompt: PromptContent, context_sources: ContextSources = None
     ) -> int:
         """Return token count for the prompt; raise if budget is exceeded."""
-        prompt_tokens = self._count_tokens(content_to_text(prompt))
+        prompt_text = content_to_text(prompt)
+        if self.max_prompt_chars is not None and len(prompt_text) > self.max_prompt_chars:
+            raise ValueError(
+                f"Prompt exceeds max_prompt_chars limit "
+                f"({len(prompt_text)} > {self.max_prompt_chars})"
+            )
+        prompt_tokens = self._count_tokens(prompt_text)
         if self.system_prompt:
             prompt_tokens += self._count_tokens(self.system_prompt)
         for message in self.memory.get_context():

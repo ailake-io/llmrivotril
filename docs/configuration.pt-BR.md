@@ -45,6 +45,7 @@ Precedência: valores padrão do arquivo < variáveis de ambiente < argumentos d
 | `RIVOTRIL_CIRCUIT_FAILURE_THRESHOLD` | int | Falhas antes do circuit abrir. |
 | `RIVOTRIL_CIRCUIT_RECOVERY_TIMEOUT` | float | Segundos antes do circuit tentar novamente. |
 | `RIVOTRIL_MAX_PROMPT_TOKENS` | int | Rejeita prompts acima dessa contagem de tokens. |
+| `RIVOTRIL_MAX_PROMPT_CHARS` | int | Rejeita prompts de texto acima desse número de caracteres antes da tokenização. |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Rejeita execuções que excederiam esse orçamento cumulativo. |
 | `RIVOTRIL_METRICS_PATH` | string | Persiste métricas automaticamente nesse arquivo JSON. |
 | `RIVOTRIL_MEMORY_PATH` | string | Persiste a memória de conversa automaticamente nesse arquivo JSON. |

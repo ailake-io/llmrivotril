@@ -13,7 +13,9 @@ class MetricsCollector:
     Tracks requests, tokens, guardrail blocks, hallucinations, and cache hits.
     """
 
-    def __init__(self, auto_save_path: str | Path | None = None) -> None:
+    def __init__(self, auto_save_path: str | Path | None = None, max_logs: int = 100) -> None:
+        if max_logs < 0:
+            raise ValueError("max_logs must be non-negative")
         self._lock = Lock()
         self.requests_total = 0
         self.guardrail_blocks = 0
@@ -25,6 +27,7 @@ class MetricsCollector:
         self.latencies: list[float] = []
         self.logs: list[dict[str, Any]] = []
         self.auto_save_path = auto_save_path
+        self.max_logs = max_logs
 
     def log_execution(
         self,
@@ -72,8 +75,9 @@ class MetricsCollector:
                     "cache_hit": cache_hit,
                 },
             )
-            # Keep history capped at 100 items
-            if len(self.logs) > 100:
+            # Keep history bounded so long-running processes do not grow
+            # indefinitely. A zero limit disables per-request log retention.
+            if len(self.logs) > self.max_logs:
                 self.logs.pop()
 
         self._maybe_auto_save()
@@ -139,7 +143,7 @@ class MetricsCollector:
             self.total_tokens_consumed = data.get("total_tokens_consumed", 0)
             self.total_cost_usd = data.get("total_cost_usd", None)
             self.latencies = data.get("latencies", []).copy()
-            self.logs = data.get("logs", []).copy()
+            self.logs = data.get("logs", []).copy()[: self.max_logs]
 
     def _maybe_auto_save(self) -> None:
         """Persist state if an automatic save path is configured."""

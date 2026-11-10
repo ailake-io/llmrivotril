@@ -206,7 +206,7 @@ python -m pip install -c .github/constraints-runtime.txt \
 
 ![CI](https://github.com/ailake-io/llmrivotril/workflows/CI/badge.svg)
 
-The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.13.
+The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.15.
 
 ## License
 
