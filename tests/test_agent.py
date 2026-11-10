@@ -71,6 +71,40 @@ def test_agent_without_response_model():
     assert agent.memory.get_context()[-1]["role"] == "assistant"
 
 
+@pytest.mark.asyncio
+async def test_network_guardrail_does_not_block_event_loop():
+    import asyncio
+    from threading import Event
+
+    started, release = Event(), Event()
+
+    class LocalGuard:
+        name = "local-network-double"
+        network_bound = True
+
+        def validate_input(self, text):
+            started.set()
+            assert release.wait(timeout=3)
+
+        def validate_output(self, text, model):
+            pass
+
+    agent, provider = _make_agent(guardrails=[LocalGuard()])
+    provider._acomplete_mock.return_value = ProviderResponse(content="OK")
+    task = asyncio.create_task(agent.run_async("hello"))
+
+    async def wait_started():
+        while not started.is_set():
+            await asyncio.sleep(0.001)
+
+    try:
+        await asyncio.wait_for(wait_started(), timeout=2)
+        provider._acomplete_mock.assert_not_called()
+    finally:
+        release.set()
+    assert await task == "OK"
+
+
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
 def test_output_token_budget_rejects_invalid_values(value):
     with pytest.raises(ValueError, match="max_output_tokens"):

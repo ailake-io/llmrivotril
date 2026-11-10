@@ -11,6 +11,7 @@ from typing import Any, cast
 import tiktoken
 from pydantic import BaseModel, ValidationError
 
+from ._async import run_sync
 from .budget import SessionBudget
 from .cache import BaseCache, DiskCache, _cache_fingerprint, cache_key
 from .concurrency import CapacityLimiter
@@ -105,6 +106,8 @@ class RivotrilAgent:
         max_session_cost_usd: Any = _UNSET,
         input_price_per_million: Any = _UNSET,
         output_price_per_million: Any = _UNSET,
+        parallel_guardrails: bool = False,
+        guardrail_workers: int = 4,
     ) -> None:
         config = load_config()
 
@@ -173,6 +176,14 @@ class RivotrilAgent:
 
         plugin_guardrails, plugin_verifiers = load_plugins(plugins)
         self.guardrails = (guardrails or []) + plugin_guardrails
+        self.parallel_guardrails = parallel_guardrails
+        if (
+            isinstance(guardrail_workers, bool)
+            or not isinstance(guardrail_workers, int)
+            or guardrail_workers < 1
+        ):
+            raise ValueError("guardrail_workers must be a positive integer")
+        self.guardrail_workers = guardrail_workers
 
         resolved_memory_path = _resolve(memory_path, "memory_path", None)
         resolved_memory_max_tokens = _resolve(memory_max_tokens, "memory_max_tokens", None)
@@ -286,7 +297,7 @@ class RivotrilAgent:
         messages: list[Any] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-        messages.extend(self.memory.get_context())
+        messages.extend(self.memory.get_context(query=content_to_text(prompt)))
         normalized_context = _normalize_context_sources(context_sources)
         if normalized_context:
             messages.append(
@@ -303,12 +314,54 @@ class RivotrilAgent:
         return messages
 
     def _run_preflight(self, prompt: str) -> None:
-        for guardrail in self.guardrails:
+        def check(guardrail: Guardrail) -> None:
             try:
                 guardrail.validate_input(prompt)
             except GuardrailViolationError as exc:
                 logger.warning("Guardrail %r blocked input: %s", guardrail.name, exc)
                 raise
+
+        if self.parallel_guardrails and len(self.guardrails) > 1:
+            # Network-bound guardrails (moderation, Jev) overlap instead of
+            # adding up. All finish before the LLM call; first failure raises.
+            with ThreadPoolExecutor(
+                max_workers=min(self.guardrail_workers, len(self.guardrails))
+            ) as pool:
+                for future in [pool.submit(check, g) for g in self.guardrails]:
+                    future.result()
+            return
+        for guardrail in self.guardrails:
+            check(guardrail)
+
+    async def _run_preflight_async(self, prompt: str) -> None:
+        if self.parallel_guardrails or any(
+            getattr(g, "network_bound", False) for g in self.guardrails
+        ):
+            await run_sync(self._run_preflight, prompt)
+        else:
+            self._run_preflight(prompt)
+
+    async def _build_messages_async(
+        self, prompt: PromptContent, context_sources: ContextSources = None
+    ) -> list[Any]:
+        if self.memory.select is not None:
+            return await run_sync(self._build_messages, prompt, context_sources)
+        return self._build_messages(prompt, context_sources)
+
+    async def _run_post_generation_async(
+        self,
+        prompt: str,
+        response_text: str,
+        response: Any,
+        context_sources: ContextSources,
+    ) -> Any:
+        if self.memory.summarize is not None or any(
+            getattr(g, "network_bound", False) for g in self.guardrails
+        ):
+            return await run_sync(
+                self._run_post_generation, prompt, response_text, response, context_sources
+            )
+        return self._run_post_generation(prompt, response_text, response, context_sources)
 
     def _run_post_generation(
         self,
@@ -1048,8 +1101,8 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_async")
         try:
-            self._run_preflight(content_to_text(prompt))
-            messages = self._build_messages(prompt, context_sources)
+            await self._run_preflight_async(content_to_text(prompt))
+            messages = await self._build_messages_async(prompt, context_sources)
             if response_model is not None and self.schema_repair_attempts > 0:
                 response = await self._execute_structured_with_repair_async(
                     messages, response_model, tools=tool_registry.schemas if tool_registry else None
@@ -1083,10 +1136,13 @@ class RivotrilAgent:
                     ]
                 )
                 for guardrail in self.guardrails:
-                    guardrail.validate_output(tool_payload, model=self.model)
+                    if getattr(guardrail, "network_bound", False):
+                        await run_sync(guardrail.validate_output, tool_payload, model=self.model)
+                    else:
+                        guardrail.validate_output(tool_payload, model=self.model)
                 self._check_response_size(len(tool_payload))
                 return response
-            self._run_post_generation(
+            await self._run_post_generation_async(
                 content_to_text(prompt), response_text, response, context_sources
             )
             logger.info("Agent async run completed successfully")
@@ -1410,8 +1466,8 @@ class RivotrilAgent:
         response_chars = 0
         logger.debug("Starting agent.run_stream_async")
         try:
-            self._run_preflight(content_to_text(prompt))
-            messages = self._build_messages(prompt, context_sources)
+            await self._run_preflight_async(content_to_text(prompt))
+            messages = await self._build_messages_async(prompt, context_sources)
 
             async with aclosing(self._astream_chunks(messages, tool_registry)) as chunks:
                 async for chunk in chunks:
@@ -1426,7 +1482,7 @@ class RivotrilAgent:
             )
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(
+            await self._run_post_generation_async(
                 content_to_text(prompt), response_text, response_text, context_sources
             )
             logger.info("Agent async stream completed successfully")
@@ -1553,8 +1609,8 @@ class RivotrilAgent:
         response_chars = 0
         logger.debug("Starting agent.run_stream_async (structured)")
         try:
-            self._run_preflight(content_to_text(prompt))
-            messages = self._build_messages(prompt, context_sources)
+            await self._run_preflight_async(content_to_text(prompt))
+            messages = await self._build_messages_async(prompt, context_sources)
 
             async with aclosing(self._astream_chunks(messages, None)) as chunks:
                 async for chunk in chunks:
@@ -1572,7 +1628,7 @@ class RivotrilAgent:
 
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(
+            await self._run_post_generation_async(
                 content_to_text(prompt), response_text, structured, context_sources
             )
             result_holder.result = structured

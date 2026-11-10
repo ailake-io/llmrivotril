@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Reviewed Jev integration
+
+- Integrate the previously unmerged Jev branch as an optional feature using
+  `typesafe-sdk>=0.7.5,<0.8.0`, validated with the real SDK and local HTTP.
+- Validate finite thresholds/probabilities; omit credentials and upstream error
+  details; configure a default timeout and disable hidden SDK retries.
+- Add safe context selection that preserves conversation groups and the latest
+  exchange, falls back on failure and cannot mutate stored history.
+- Add opt-in bounded parallel input guardrails and offload Jev checks/selection
+  in async APIs. Retain the current publishing workflow and encrypted memory.
+- Validation: 453 passed, 18 skipped with the SDK; 450 passed, 19 skipped with
+  the SDK blocked. Ruff, mypy, build and package metadata checks passed.
+
 - Clarify the feature name as "estimated session cost limit"; preserve
   `max_session_cost_usd`, `SessionBudget` and `CostBudgetExceededError` API names.
 

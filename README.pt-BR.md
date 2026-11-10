@@ -209,6 +209,9 @@ da estimativa local. `provider_usage` registra as chamadas adicionais.
 AG2 suporta eventos de ferramentas, validação estruturada e streaming textual
 (AG2 1.3+, Python 3.11+). Veja [integrações](docs/integrations.pt-BR.md).
 Rode [comparações locais](docs/local-benchmark.pt-BR.md) sem conta de modelos.
+[Verificações Jev e seleção de contexto](docs/guardrails-and-safety.pt-BR.md#triagem-semântica-jev-opcional)
+são opcionais via `llmrivotril[jev]`. Enviam texto à TypeSafe e podem aumentar
+custos; `parallel_guardrails=True` executa verificações de entrada em pool limitado.
 Configure `max_concurrent_calls` para limitar concorrência por agente. Feche
 streams explicitamente ao parar cedo; veja [confiabilidade](docs/reliability.pt-BR.md).
 

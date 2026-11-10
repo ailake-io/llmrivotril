@@ -70,6 +70,9 @@ rag = [
     "beautifulsoup4>=4.12.0",
     "pypdf>=4.0.0",
 ]
+jev = [
+    "typesafe-sdk>=0.7.5,<0.8.0",
+]
 redis = [
     "redis>=5.0.0",
 ]
@@ -120,6 +123,7 @@ ci = [
     "twine>=5.0.0",
 ]
 dev = [
+    "typesafe-sdk>=0.7.5,<0.8.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "httpx>=0.24.0",
@@ -222,6 +226,7 @@ module = [
     "crewai.*",
     "langchain_core.*",
     "ag2.*",
+    "typesafe_sdk.*",
 ]
 ignore_missing_imports = true
 

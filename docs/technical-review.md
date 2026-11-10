@@ -45,6 +45,14 @@ Limites opcionais de contexto, anexos serializados e resposta adicionados.
 
 ## Pontos positivos
 
+Revisão da branch Jev: integração aproveitada somente como opção explícita,
+com SDK real 0.7.5 e testes HTTP locais. O ganho potencial é triagem semântica
+e redução de contexto; economia, precisão e latência reais não foram medidas.
+Foram corrigidos exposição de erros/chaves, probabilidades inválidas, pool
+sem limite e seleção de turnos isolados. Contexto selecionado precisa ser
+subsequência do histórico; falhas preservam a memória original. A publicação
+atual e a criptografia foram preservadas na resolução dos conflitos.
+
 Atualização da rodada local: foram adicionados limites estimados de custo por agente,
 contabilidade `provider_usage` das gerações visíveis e benchmark comparativo
 sintético. O adapter AG2 agora devolve ferramentas para execução pelo
