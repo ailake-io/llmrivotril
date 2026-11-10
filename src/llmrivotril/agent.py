@@ -10,7 +10,7 @@ from typing import Any, cast
 import tiktoken
 from pydantic import BaseModel, ValidationError
 
-from .cache import BaseCache, DiskCache, cache_key
+from .cache import BaseCache, DiskCache, _cache_fingerprint, cache_key
 from .config import load_config
 from .content import PromptContent, content_to_text, redact_content
 from .exceptions import (
@@ -94,6 +94,9 @@ class RivotrilAgent:
         schema_repair_attempts: Any = _UNSET,
         redact_pii: Any = _UNSET,
         pii_redactor: PIIRedactor | None = None,
+        max_context_chars: Any = _UNSET,
+        max_attachment_bytes: Any = _UNSET,
+        max_response_chars: Any = _UNSET,
     ) -> None:
         config = load_config()
 
@@ -122,6 +125,13 @@ class RivotrilAgent:
         self.max_session_tokens = _resolve(max_session_tokens, "max_session_tokens", None)
         self.max_prompt_tokens = _resolve(max_prompt_tokens, "max_prompt_tokens", None)
         self.max_prompt_chars = _resolve(max_prompt_chars, "max_prompt_chars", None)
+        self.max_context_chars = _resolve(max_context_chars, "max_context_chars", None)
+        self.max_attachment_bytes = _resolve(max_attachment_bytes, "max_attachment_bytes", None)
+        self.max_response_chars = _resolve(max_response_chars, "max_response_chars", None)
+        for name in ("max_context_chars", "max_attachment_bytes", "max_response_chars"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, int) or value <= 0):
+                raise ValueError(f"{name} must be a positive integer when configured")
         if self.max_prompt_chars is not None and self.max_prompt_chars <= 0:
             raise ValueError("max_prompt_chars must be positive when configured")
         self._session_tokens_used = 0
@@ -267,6 +277,7 @@ class RivotrilAgent:
         response: Any,
         context_sources: ContextSources,
     ) -> Any:
+        self._check_response_size(len(response_text))
         normalized_context = _normalize_context_sources(context_sources)
         for guardrail in self.guardrails:
             try:
@@ -291,8 +302,12 @@ class RivotrilAgent:
         return kwargs
 
     def _count_tokens(self, text: str) -> int:
+        # Large inputs are counted without retaining even a fingerprint.
+        if len(text) > 16384:
+            return len(self.tokenizer.encode(text))
+        key = _cache_fingerprint(text)
         with self._token_count_cache_lock:
-            cached = self._token_count_cache.get(text)
+            cached = self._token_count_cache.get(key)
             if cached is not None:
                 return cached
 
@@ -300,8 +315,12 @@ class RivotrilAgent:
         with self._token_count_cache_lock:
             if len(self._token_count_cache) >= 4096:
                 self._token_count_cache.pop(next(iter(self._token_count_cache)))
-            self._token_count_cache[text] = count
+            self._token_count_cache[key] = count
         return count
+
+    def _check_response_size(self, size: int) -> None:
+        if self.max_response_chars is not None and size > self.max_response_chars:
+            raise GuardrailViolationError("Response exceeds max_response_chars limit")
 
     def _summarize_history(self, text: str) -> str:
         """Compact old memory turns into a short summary via a direct provider call.
@@ -488,6 +507,17 @@ class RivotrilAgent:
         self, prompt: PromptContent, context_sources: ContextSources = None
     ) -> int:
         """Return token count for the prompt; raise if budget is exceeded."""
+        context = _normalize_context_sources(context_sources)
+        if self.max_context_chars is not None and len(context or "") > self.max_context_chars:
+            raise ValueError("Context exceeds max_context_chars limit")
+        if self.max_attachment_bytes is not None and isinstance(prompt, list):
+            attachment_size = sum(
+                len(json.dumps(part, ensure_ascii=False).encode("utf-8"))
+                for part in prompt
+                if part.get("type", "text") != "text"
+            )
+            if attachment_size > self.max_attachment_bytes:
+                raise ValueError("Attachments exceed max_attachment_bytes limit")
         prompt_text = content_to_text(prompt)
         if self.max_prompt_chars is not None and len(prompt_text) > self.max_prompt_chars:
             raise ValueError(
@@ -1113,6 +1143,7 @@ class RivotrilAgent:
         guardrail_blocked = False
         hallucination_blocked = False
         error_msg: str | None = None
+        response_chars = 0
         response_chunks: list[str] = []
         response_text = ""
         tokens = self._check_token_budget(prompt, context_sources)
@@ -1125,6 +1156,8 @@ class RivotrilAgent:
             messages = self._build_messages(prompt, context_sources)
 
             for chunk in self._stream_chunks(messages, tool_registry):
+                response_chars += len(chunk)
+                self._check_response_size(response_chars)
                 response_chunks.append(chunk)
                 yield chunk
 
@@ -1201,12 +1234,15 @@ class RivotrilAgent:
         prompt = self._redact(prompt)
         tool_registry = ToolRegistry(tools) if tools is not None else None
 
+        response_chars = 0
         logger.debug("Starting agent.run_stream_async")
         try:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             async for chunk in self._astream_chunks(messages, tool_registry):
+                response_chars += len(chunk)
+                self._check_response_size(response_chars)
                 response_chunks.append(chunk)
                 yield chunk
 
@@ -1263,12 +1299,15 @@ class RivotrilAgent:
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
 
+        response_chars = 0
         logger.debug("Starting agent.run_stream (structured)")
         try:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             for chunk in self._stream_chunks(messages, None):
+                response_chars += len(chunk)
+                self._check_response_size(response_chars)
                 response_chunks.append(chunk)
                 yield chunk
 
@@ -1336,12 +1375,15 @@ class RivotrilAgent:
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
 
+        response_chars = 0
         logger.debug("Starting agent.run_stream_async (structured)")
         try:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
             async for chunk in self._astream_chunks(messages, None):
+                response_chars += len(chunk)
+                self._check_response_size(response_chars)
                 response_chunks.append(chunk)
                 yield chunk
 

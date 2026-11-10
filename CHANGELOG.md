@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bound latency history while preserving cumulative averages and legacy snapshots.
+- Persist error counts and isolate telemetry snapshots from consumer mutations.
+- Keep keyed fingerprints instead of prompt text in the token-count cache;
+  bypass caching for texts longer than 16384 characters.
+- Add optional context, serialized attachment and response size limits,
+  including checks before yielding streaming chunks.
+
 ### Added
 
 - Add an explicit `max_prompt_chars` guard before tokenization to limit oversized
@@ -15,8 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make `MetricsCollector` log retention configurable with `max_logs`, including
   `max_logs=0` for aggregate-only telemetry.
 - Extend CI and package classifiers through Python 3.15.
-- Temporarily restore the previously working PyPI token workflow while GitHub
-  Actions reports an unexplained zero-job startup failure for Trusted Publishing.
+- Temporarily restore PyPI token publishing and add manual tag recovery after
+  the Actions allowlist blocked artifact and PyPA publish actions.
 
 ## [0.1.6] - 2026-11-10
 
@@ -27,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove sensitive exception details and model responses from example/log output.
 - Use keyed SHA3 cache fingerprints so prompt contents are not exposed in cache
   identifiers.
-- Migrate PyPI publishing to GitHub OIDC Trusted Publishing with attestations.
+- Prepare GitHub OIDC Trusted Publishing; the actual publication used the
+  token workflow after the repository Actions policy blocked the publish action.
 
 ### Validation
 

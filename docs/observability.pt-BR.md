@@ -27,7 +27,11 @@ metrics.load_metrics("metrics.json")
 
 `MetricsCollector(max_logs=100)` limita o histórico de auditoria mantido em
 memória. Use `max_logs=0` quando precisar apenas dos contadores agregados e não
-quiser manter o conteúdo das requisições no processo.
+quiser manter o conteúdo das requisições no histórico de métricas. Isso não
+desativa a memória de conversa nem o cache de contagem de tokens do agente.
+São mantidas as últimas 1000 amostras de latência; a média acumulada usa
+contadores de tamanho constante. Erros e agregados de latência são persistidos,
+com leitura compatível de arquivos antigos.
 
 ## Dashboard local
 

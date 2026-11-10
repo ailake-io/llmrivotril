@@ -112,6 +112,39 @@ def test_agent_uses_provider_retryable_exceptions():
     assert agent.circuit_breaker.expected_exception == (ValueError,)
 
 
+def test_input_and_response_limits():
+    agent, provider = _make_agent(
+        max_context_chars=3, max_attachment_bytes=10, max_response_chars=3
+    )
+    with pytest.raises(ValueError, match="Context"):
+        agent.run("hi", context_sources="long context")
+    with pytest.raises(ValueError, match="Attachments"):
+        agent.run([{"type": "image_url", "image_url": {"url": "data:large"}}])
+    provider._complete_mock.assert_not_called()
+    provider._complete_mock.return_value = ProviderResponse(content="too long")
+    with pytest.raises(GuardrailViolationError, match="max_response_chars"):
+        agent.run("hi")
+    assert agent.memory.get_context() == []
+
+
+def test_stream_limit_rejects_chunk_before_yield():
+    agent, provider = _make_agent(max_response_chars=3)
+    provider._stream_chunks = ["ab", "cd"]
+    stream = agent.run_stream("hi")
+    assert next(stream) == "ab"
+    with pytest.raises(GuardrailViolationError, match="max_response_chars"):
+        next(stream)
+
+
+def test_token_cache_retains_only_fingerprints():
+    agent, _ = _make_agent()
+    agent._count_tokens("private message")
+    assert "private message" not in repr(agent._token_count_cache)
+    before = len(agent._token_count_cache)
+    agent._count_tokens("x" * 20000)
+    assert len(agent._token_count_cache) == before
+
+
 def test_agent_with_guardrail_block():
     guardrail = Guardrail(name="safe", disallowed_keywords=["forbidden"])
     agent, _ = _make_agent(guardrails=[guardrail])

@@ -199,6 +199,8 @@ pytest -v --run-slow
 
 O workflow do GitHub Actions roda lint, type checking, testes e builds do pacote no Python 3.10–3.15.
 
+Limites opcionais: `max_context_chars`, `max_attachment_bytes` e `max_response_chars` aceitam inteiros positivos (padrão `None`). As verificações de resposta são locais e não limitam cobrança. Veja [configuração](docs/configuration.pt-BR.md) para os detalhes de streaming e anexos.
+
 ## Licença
 
 Licença MIT — veja [LICENSE](LICENSE).

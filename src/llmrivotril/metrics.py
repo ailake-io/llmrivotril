@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import time
+from copy import deepcopy
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -25,6 +26,8 @@ class MetricsCollector:
         self.total_tokens_consumed = 0
         self.total_cost_usd: float | None = None
         self.latencies: list[float] = []
+        self._latency_total = 0.0
+        self._latency_count = 0
         self.logs: list[dict[str, Any]] = []
         self.auto_save_path = auto_save_path
         self.max_logs = max_logs
@@ -45,6 +48,9 @@ class MetricsCollector:
             self.requests_total += 1
             self.total_tokens_consumed += tokens
             self.latencies.append(latency)
+            del self.latencies[:-1000]
+            self._latency_total += latency
+            self._latency_count += 1
 
             if cost_usd is not None:
                 if self.total_cost_usd is None:
@@ -92,11 +98,13 @@ class MetricsCollector:
             self.total_tokens_consumed = 0
             self.total_cost_usd = None
             self.latencies.clear()
+            self._latency_total = 0.0
+            self._latency_count = 0
             self.logs.clear()
 
     def get_summary(self) -> dict[str, Any]:
         with self._lock:
-            avg_latency = sum(self.latencies) / len(self.latencies) if self.latencies else 0.0
+            avg_latency = self._latency_total / self._latency_count if self._latency_count else 0.0
             failed = self.guardrail_blocks + self.hallucinations_detected + self.errors_total
             if self.requests_total > 0:
                 success_rate = max(0.0, (self.requests_total - failed) / self.requests_total * 100)
@@ -115,7 +123,7 @@ class MetricsCollector:
                 "total_cost_usd": self.total_cost_usd,
                 "avg_latency": round(avg_latency, 3),
                 "success_rate": round(success_rate, 2),
-                "logs": self.logs,
+                "logs": deepcopy(self.logs),
             }
 
     def to_dict(self) -> dict[str, Any]:
@@ -123,13 +131,16 @@ class MetricsCollector:
         with self._lock:
             return {
                 "requests_total": self.requests_total,
+                "errors_total": self.errors_total,
                 "guardrail_blocks": self.guardrail_blocks,
                 "hallucinations_detected": self.hallucinations_detected,
                 "cache_hits": self.cache_hits,
                 "total_tokens_consumed": self.total_tokens_consumed,
                 "total_cost_usd": self.total_cost_usd,
                 "latencies": self.latencies.copy(),
-                "logs": self.logs.copy(),
+                "latency_total": self._latency_total,
+                "latency_count": self._latency_count,
+                "logs": deepcopy(self.logs),
             }
 
     def from_dict(self, data: dict[str, Any]) -> None:
@@ -142,8 +153,11 @@ class MetricsCollector:
             self.cache_hits = data.get("cache_hits", 0)
             self.total_tokens_consumed = data.get("total_tokens_consumed", 0)
             self.total_cost_usd = data.get("total_cost_usd", None)
-            self.latencies = data.get("latencies", []).copy()
-            self.logs = data.get("logs", []).copy()[: self.max_logs]
+            samples = data.get("latencies", [])
+            self._latency_total = data.get("latency_total", sum(samples))
+            self._latency_count = data.get("latency_count", len(samples))
+            self.latencies = samples[-1000:].copy()
+            self.logs = deepcopy(data.get("logs", [])[: self.max_logs])
 
     def _maybe_auto_save(self) -> None:
         """Persist state if an automatic save path is configured."""

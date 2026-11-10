@@ -26,7 +26,10 @@ metrics.load_metrics("metrics.json")
 
 `MetricsCollector(max_logs=100)` bounds the in-memory audit trail. Set
 `max_logs=0` when only aggregate counters are needed and request content must
-not be retained in the process.
+not be retained in the metrics audit trail. This does not disable conversation
+memory or the agent's token-count cache. The latest 1000 latency samples are
+retained; the cumulative average uses constant-size counters. Error counts and
+latency aggregates survive persistence, including loading legacy snapshots.
 
 ## Local Dashboard
 

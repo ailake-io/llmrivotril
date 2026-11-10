@@ -208,6 +208,8 @@ python -m pip install -c .github/constraints-runtime.txt \
 
 The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.15.
 
+Optional size controls: `max_context_chars`, `max_attachment_bytes`, and `max_response_chars` accept positive integers (default `None`). Response checks run locally and do not cap provider billing. See [configuration](docs/configuration.md) for streaming and attachment semantics.
+
 ## License
 
 MIT License — see [LICENSE](https://github.com/ailake-io/llmrivotril/blob/main/LICENSE).

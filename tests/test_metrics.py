@@ -12,6 +12,39 @@ def test_empty_summary():
     assert summary["success_rate"] == 100.0
 
 
+def test_bounded_latency_preserves_global_average_and_errors(tmp_path):
+    metrics = MetricsCollector(max_logs=0)
+    for i in range(1500):
+        metrics.log_execution("p", "r", 1, float(i), error="failed" if i == 0 else None)
+    assert len(metrics.latencies) == 1000
+    assert metrics.get_summary()["avg_latency"] == 749.5
+    path = tmp_path / "metrics.json"
+    metrics.save_to_json(path)
+    restored = MetricsCollector()
+    restored.load_from_json(path)
+    assert restored.errors_total == 1
+    assert restored.get_summary()["avg_latency"] == 749.5
+
+
+def test_metrics_snapshots_do_not_alias_internal_logs():
+    metrics = MetricsCollector()
+    metrics.log_execution("original", "r", 1, 0.1)
+    for snapshot in (metrics.get_summary(), metrics.to_dict()):
+        snapshot["logs"][0]["prompt"] = "changed"
+    assert metrics.logs[0]["prompt"] == "original"
+    data = metrics.to_dict()
+    restored = MetricsCollector()
+    restored.from_dict(data)
+    data["logs"][0]["prompt"] = "changed"
+    assert restored.logs[0]["prompt"] == "original"
+
+
+def test_legacy_latency_snapshot_loads():
+    metrics = MetricsCollector()
+    metrics.from_dict({"latencies": [1.0, 3.0]})
+    assert metrics.get_summary()["avg_latency"] == 2.0
+
+
 def test_log_execution_counts():
     metrics = MetricsCollector()
     metrics.log_execution("prompt", "response", tokens=10, latency=0.5)

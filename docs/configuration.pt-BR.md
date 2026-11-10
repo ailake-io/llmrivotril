@@ -46,6 +46,9 @@ Precedência: valores padrão do arquivo < variáveis de ambiente < argumentos d
 | `RIVOTRIL_CIRCUIT_RECOVERY_TIMEOUT` | float | Segundos antes do circuit tentar novamente. |
 | `RIVOTRIL_MAX_PROMPT_TOKENS` | int | Rejeita prompts acima dessa contagem de tokens. |
 | `RIVOTRIL_MAX_PROMPT_CHARS` | int | Rejeita prompts de texto acima desse número de caracteres antes da tokenização. |
+| `RIVOTRIL_MAX_CONTEXT_CHARS` | int | Máximo de caracteres do contexto recuperado (`max_context_chars`). |
+| `RIVOTRIL_MAX_ATTACHMENT_BYTES` | int | Máximo de bytes JSON UTF-8 das partes não textuais (`max_attachment_bytes`), incluindo base64 e metadados; downloads de URLs não são medidos. |
+| `RIVOTRIL_MAX_RESPONSE_CHARS` | int | Máximo de caracteres da resposta (`max_response_chars`); verificado antes de entregar chunks e atualizar memória. Chunks já entregues continuam visíveis. |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Rejeita execuções que excederiam esse orçamento cumulativo. |
 | `RIVOTRIL_METRICS_PATH` | string | Persiste métricas automaticamente nesse arquivo JSON. |
 | `RIVOTRIL_MEMORY_PATH` | string | Persiste a memória de conversa automaticamente nesse arquivo JSON. |
