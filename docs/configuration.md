@@ -49,6 +49,7 @@ Precedence: file defaults < environment variables < constructor arguments.
 | `RIVOTRIL_MAX_CONTEXT_CHARS` | int | Maximum retrieved context characters (`max_context_chars`). |
 | `RIVOTRIL_MAX_ATTACHMENT_BYTES` | int | Maximum combined UTF-8 JSON bytes for non-text parts (`max_attachment_bytes`), including base64 and metadata; remote URL downloads are not measured. |
 | `RIVOTRIL_MAX_RESPONSE_CHARS` | int | Maximum response characters (`max_response_chars`); checked before streaming chunks are yielded and before memory updates. Previously yielded chunks remain visible. |
+| `RIVOTRIL_MAX_CONCURRENT_CALLS` | int | Per-agent provider-call capacity shared by sync, async and streaming (`max_concurrent_calls`); positive integer or `None` (unlimited). |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Reject runs that would exceed this cumulative budget. |
 | `RIVOTRIL_METRICS_PATH` | string | Persist metrics to this JSON file automatically. |
 | `RIVOTRIL_MEMORY_PATH` | string | Persist conversation memory to this JSON file automatically. |

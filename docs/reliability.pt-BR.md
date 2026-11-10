@@ -145,3 +145,17 @@ agent = RivotrilAgent(
 
 agent.run("Return a JSON answer.", response_model=Answer)
 ```
+
+## Chamadas concorrentes ao provider
+
+Use `RivotrilAgent(max_concurrent_calls=2)` para limitar chamadas simultâneas
+desse agente, incluindo streams. Cache hits não ocupam uma vaga. A vaga cobre
+retries e é liberada antes das ferramentas e chamadas de continuação. A espera
+assíncrona pode ser cancelada sem perder capacidade. Não é um limitador
+distribuído nem isolamento de sessões: use agentes/memórias separados para
+conversas independentes. Resumos internos de histórico não são cobertos.
+
+Ao parar cedo, feche streams síncronos com `close()` e assíncronos com
+`await aclose()`. Apenas `break` não garante fechamento imediato. O fechamento
+explícito chega ao provider e libera capacidade, assim como conclusão normal,
+erros e limites de resposta. Tokens já gerados ou cobrados não são recuperados.

@@ -2,8 +2,9 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing, closing
 from threading import Lock
 from typing import Any, cast
 
@@ -11,6 +12,7 @@ import tiktoken
 from pydantic import BaseModel, ValidationError
 
 from .cache import BaseCache, DiskCache, _cache_fingerprint, cache_key
+from .concurrency import CapacityLimiter
 from .config import load_config
 from .content import PromptContent, content_to_text, redact_content
 from .exceptions import (
@@ -97,6 +99,7 @@ class RivotrilAgent:
         max_context_chars: Any = _UNSET,
         max_attachment_bytes: Any = _UNSET,
         max_response_chars: Any = _UNSET,
+        max_concurrent_calls: Any = _UNSET,
     ) -> None:
         config = load_config()
 
@@ -128,6 +131,9 @@ class RivotrilAgent:
         self.max_context_chars = _resolve(max_context_chars, "max_context_chars", None)
         self.max_attachment_bytes = _resolve(max_attachment_bytes, "max_attachment_bytes", None)
         self.max_response_chars = _resolve(max_response_chars, "max_response_chars", None)
+        self._capacity = CapacityLimiter(
+            _resolve(max_concurrent_calls, "max_concurrent_calls", None)
+        )
         for name in ("max_context_chars", "max_attachment_bytes", "max_response_chars"):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, int) or value <= 0):
@@ -682,7 +688,8 @@ class RivotrilAgent:
                 return self._execute_structured(messages, response_model, tools)
             return self._execute_unstructured(messages, tools)
 
-        response = self.circuit_breaker.call(_call)
+        with self._capacity.slot():
+            response = self.circuit_breaker.call(_call)
         response = self._redact_response(response, response_model)
         self._cache_store(messages, response_model, response, tools)
         return response
@@ -709,7 +716,8 @@ class RivotrilAgent:
                 return await self._execute_structured_async(messages, response_model, tools)
             return await self._execute_unstructured_async(messages, tools)
 
-        response = await self.circuit_breaker.call_async(_call)
+        async with self._capacity.async_slot():
+            response = await self.circuit_breaker.call_async(_call)
         response = self._redact_response(response, response_model)
         self._cache_store(messages, response_model, response, tools)
         return response
@@ -1039,7 +1047,7 @@ class RivotrilAgent:
 
     def _stream_chunks(
         self, messages: list[Any], tool_registry: ToolRegistry | None = None
-    ) -> Iterator[str]:
+    ) -> Generator[str, None, None]:
         """Yield text chunks from the provider's synchronous stream.
 
         See :meth:`run_stream` for how ``tool_registry`` changes behavior.
@@ -1048,11 +1056,17 @@ class RivotrilAgent:
         stream_kwargs = self._llm_call_kwargs()
         if tool_registry is not None:
             stream_kwargs["tools"] = tool_registry.schemas
-        stream = self.provider.stream(model=self.model, messages=messages, **stream_kwargs)
-        for chunk in stream:
-            content = self._extract_stream_content(chunk, tool_call_deltas)
-            if content:
-                yield content
+        with self._capacity.slot():
+            stream = self.provider.stream(model=self.model, messages=messages, **stream_kwargs)
+            try:
+                for chunk in stream:
+                    content = self._extract_stream_content(chunk, tool_call_deltas)
+                    if content:
+                        yield content
+            finally:
+                close = getattr(stream, "close", None)
+                if close is not None:
+                    close()
 
         if tool_call_deltas and tool_registry is not None:
             fake_response = ProviderResponse(
@@ -1063,7 +1077,7 @@ class RivotrilAgent:
 
     async def _astream_chunks(
         self, messages: list[Any], tool_registry: ToolRegistry | None = None
-    ) -> AsyncIterator[str]:
+    ) -> AsyncGenerator[str, None]:
         """Yield text chunks from the provider's asynchronous stream.
 
         See :meth:`run_stream` for how ``tool_registry`` changes behavior.
@@ -1072,12 +1086,17 @@ class RivotrilAgent:
         stream_kwargs = self._llm_call_kwargs()
         if tool_registry is not None:
             stream_kwargs["tools"] = tool_registry.schemas
-        async for chunk in self.provider.astream(
-            model=self.model, messages=messages, **stream_kwargs
-        ):
-            content = self._extract_stream_content(chunk, tool_call_deltas)
-            if content:
-                yield content
+        async with self._capacity.async_slot():
+            stream = self.provider.astream(model=self.model, messages=messages, **stream_kwargs)
+            try:
+                async for chunk in stream:
+                    content = self._extract_stream_content(chunk, tool_call_deltas)
+                    if content:
+                        yield content
+            finally:
+                close = getattr(stream, "aclose", None)
+                if close is not None:
+                    await close()
 
         if tool_call_deltas and tool_registry is not None:
             fake_response = ProviderResponse(
@@ -1155,11 +1174,12 @@ class RivotrilAgent:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
-            for chunk in self._stream_chunks(messages, tool_registry):
-                response_chars += len(chunk)
-                self._check_response_size(response_chars)
-                response_chunks.append(chunk)
-                yield chunk
+            with closing(self._stream_chunks(messages, tool_registry)) as chunks:
+                for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             response_text = (
@@ -1240,11 +1260,12 @@ class RivotrilAgent:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
-            async for chunk in self._astream_chunks(messages, tool_registry):
-                response_chars += len(chunk)
-                self._check_response_size(response_chars)
-                response_chunks.append(chunk)
-                yield chunk
+            async with aclosing(self._astream_chunks(messages, tool_registry)) as chunks:
+                async for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             response_text = (
@@ -1305,11 +1326,12 @@ class RivotrilAgent:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
-            for chunk in self._stream_chunks(messages, None):
-                response_chars += len(chunk)
-                self._check_response_size(response_chars)
-                response_chunks.append(chunk)
-                yield chunk
+            with closing(self._stream_chunks(messages, None)) as chunks:
+                for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             structured_json = (
@@ -1381,11 +1403,12 @@ class RivotrilAgent:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
-            async for chunk in self._astream_chunks(messages, None):
-                response_chars += len(chunk)
-                self._check_response_size(response_chars)
-                response_chunks.append(chunk)
-                yield chunk
+            async with aclosing(self._astream_chunks(messages, None)) as chunks:
+                async for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             structured_json = (

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Concurrency and stream lifecycle
+
+- Add optional per-agent `max_concurrent_calls`, shared by synchronous and
+  asynchronous completion and streaming calls, with cancellable async waiting.
+- Close nested provider streams explicitly on completion, early closure and
+  failures, releasing capacity before tool follow-up calls.
+- Local validation in Python 3.14 venv: 394 passed, 22 skipped.
+
 ### Local validation and privacy
 
 - Add offline wire contracts using the real OpenAI SDK for OpenAI-compatible

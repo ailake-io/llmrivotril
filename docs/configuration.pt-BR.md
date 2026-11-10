@@ -49,6 +49,7 @@ Precedência: valores padrão do arquivo < variáveis de ambiente < argumentos d
 | `RIVOTRIL_MAX_CONTEXT_CHARS` | int | Máximo de caracteres do contexto recuperado (`max_context_chars`). |
 | `RIVOTRIL_MAX_ATTACHMENT_BYTES` | int | Máximo de bytes JSON UTF-8 das partes não textuais (`max_attachment_bytes`), incluindo base64 e metadados; downloads de URLs não são medidos. |
 | `RIVOTRIL_MAX_RESPONSE_CHARS` | int | Máximo de caracteres da resposta (`max_response_chars`); verificado antes de entregar chunks e atualizar memória. Chunks já entregues continuam visíveis. |
+| `RIVOTRIL_MAX_CONCURRENT_CALLS` | int | Capacidade por agente compartilhada entre chamadas sync, async e streams (`max_concurrent_calls`); inteiro positivo ou `None` (sem limite). |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Rejeita execuções que excederiam esse orçamento cumulativo. |
 | `RIVOTRIL_METRICS_PATH` | string | Persiste métricas automaticamente nesse arquivo JSON. |
 | `RIVOTRIL_MEMORY_PATH` | string | Persiste a memória de conversa automaticamente nesse arquivo JSON. |

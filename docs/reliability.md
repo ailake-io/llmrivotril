@@ -142,3 +142,18 @@ agent = RivotrilAgent(
 
 agent.run("Return a JSON answer.", response_model=Answer)
 ```
+
+## Concurrent provider calls
+
+Use `RivotrilAgent(max_concurrent_calls=2)` to bound overlapping provider calls
+from that agent, including streams. Cache hits do not occupy a slot. The slot
+covers retries and is released before tool execution and follow-up calls.
+Async waiters can be cancelled without stranding capacity. This is not a
+distributed limiter or session isolation: use separate agents/memory stores
+for independent conversations. Internal history summarization is not covered.
+
+Close synchronous streams with `close()` and asynchronous streams with
+`await aclose()` when stopping early. A bare `break` does not promise immediate
+closure. Explicit closure propagates to the provider and releases capacity;
+normal completion, errors and response-size limits also release it. Already
+generated or billed tokens cannot be recovered by closing the connection.

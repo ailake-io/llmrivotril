@@ -208,6 +208,9 @@ python -m pip install -c .github/constraints-runtime.txt \
 
 The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.15.
 
+Set `max_concurrent_calls` to bound provider concurrency per agent. Explicitly
+close streams when stopping early; see [reliability](docs/reliability.md).
+
 Offline SDK contracts: `pytest -q tests/test_http_contracts.py` uses in-memory
 HTTP with dummy credentials. For telemetry without request or error content,
 pass `MetricsCollector(include_content=False)` to the agent. See

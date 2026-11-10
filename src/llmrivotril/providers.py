@@ -305,8 +305,11 @@ class OpenAIProvider(BaseProvider):
         stream = await self._get_async_base_client().chat.completions.create(
             model=model, messages=messages, **stream_kwargs
         )
-        async for chunk in stream:
-            yield chunk
+        try:
+            async for chunk in stream:
+                yield chunk
+        finally:
+            await stream.close()
 
 
 class AzureOpenAIProvider(OpenAIProvider):

@@ -153,6 +153,46 @@ def test_agent_with_guardrail_block():
         agent.run("forbidden word")
 
 
+def test_closing_public_stream_closes_provider_and_releases_capacity():
+    agent, provider = _make_agent(max_concurrent_calls=1)
+    closed = []
+
+    def stream(**kwargs):
+        try:
+            yield "first"
+            yield "second"
+        finally:
+            closed.append(True)
+
+    provider.stream = stream
+    result = agent.run_stream("hi")
+    assert next(result) == "first"
+    result.close()
+    assert closed == [True]
+    assert agent._capacity._active == 0
+    assert agent.memory.get_context() == []
+
+
+@pytest.mark.asyncio
+async def test_closing_public_async_stream_closes_provider():
+    agent, provider = _make_agent(max_concurrent_calls=1)
+    closed = []
+
+    async def stream(**kwargs):
+        try:
+            yield "first"
+            yield "second"
+        finally:
+            closed.append(True)
+
+    provider.astream = stream
+    result = agent.run_stream_async("hi")
+    assert await anext(result) == "first"
+    await result.aclose()
+    assert closed == [True]
+    assert agent._capacity._active == 0
+
+
 def test_agent_with_response_model():
     agent, provider = _make_agent()
     answer = Answer(text="structured")
