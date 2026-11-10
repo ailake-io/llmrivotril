@@ -18,7 +18,7 @@
 
 ## Release no PyPI
 
-O repositório contém `.github/workflows/release.yml`, que constrói o wheel e a
+O repositório contém `.github/workflows/pypi-publish.yml`, que constrói o wheel e a
 source distribution em um job isolado e publica usando Trusted Publishing do
 PyPI (OIDC). Nenhum token de API do PyPI fica armazenado no GitHub.
 
@@ -28,7 +28,7 @@ Setup único:
    trusted publisher do GitHub Actions com:
    - owner: `ailake-io`
    - repository: `llmrivotril`
-   - workflow: `.github/workflows/release.yml`
+   - workflow: `.github/workflows/pypi-publish.yml`
    - environment: `pypi`
 2. No environment `pypi` do repositório, mantenha o wait timer de cinco minutos
    e restrinja os deployments às tags de release usadas pelo projeto. Reviewers

@@ -9,6 +9,7 @@ on:
         description: Release tag to publish
         required: true
         type: string
+
 jobs:
   publish:
     name: Build and publish distributions
