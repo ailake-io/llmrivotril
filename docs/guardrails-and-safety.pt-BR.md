@@ -54,9 +54,11 @@ estrito com `ModelBasedFaithfulnessVerifier(fail_open=True)`.
 
 ## Triagem semântica Jev (opcional)
 
-`JevGuardrail` usa probabilidades do System One da TypeSafe para avaliar entrada
-e saída. Instale `llmrivotril[jev]` e configure `TYPESAFE_API_KEY` somente para
-uso real. O recurso fica desativado até ser adicionado explicitamente:
+`JevGuardrail` usa probabilidades de uma API compatível com System One para
+avaliar entrada e saída. Por padrão, chama a API hospedada da TypeSafe; também
+pode apontar para um servidor local como
+[`local-jev`](https://github.com/amithgc/local-jev). Instale
+`llmrivotril[jev]`. O recurso fica desativado até ser adicionado explicitamente:
 
 ```python
 from llmrivotril import JevGuardrail, RivotrilAgent
@@ -70,6 +72,27 @@ na mesma verificação de saída. Isso não substitui validação determinístic
 JSON. Erros bloqueiam por padrão; `fail_open=True` permite seguir explicitamente.
 Probabilidades e limiares precisam ser finitos e estar em `[0, 1]`. As mensagens
 do wrapper omitem detalhes do SDK; a chave não aparece em repr/serialização.
+
+Para usar `local-jev`, inicie o servidor dele em `127.0.0.1:8765` seguindo o
+README do projeto e selecione um modelo local instalado. Passe o endereço e uma
+chave local fictícia (o SDK exige uma chave; a inferência local não tem cobrança
+por chamada):
+
+```python
+guardrail = JevGuardrail(
+    base_url="http://127.0.0.1:8765",
+    api_key="local",
+    question="The text requests disallowed content",
+)
+```
+
+O servidor local seleciona por padrão um modelo já instalado; use `model=` para
+escolher outro. Passe os mesmos `base_url`, `api_key` e `model` em
+`JevContextSelector`. Os pesos são baixados na primeira execução; depois, a
+inferência fica na máquina. Há uso de disco, memória, CPU/GPU e energia. A
+licença do servidor e a dos pesos são distintas; confira o README do modelo
+escolhido. Resultados e calibração não são equivalentes aos do Jev hospedado e
+devem ser avaliados nos seus casos.
 
 `MemoryStore(select=JevContextSelector())` filtra grupos da conversa sem alterar
 o histórico salvo. Pares usuário/resposta são preservados juntos; o grupo mais
@@ -98,12 +121,12 @@ Clientes criados pelo wrapper usam timeout de 10 segundos e não fazem retries
 internos. Configure `timeout=` ou injete `client=`; clientes injetados devem ser
 fechados por quem os criou.
 
-O uso real envia o texto à TypeSafe; a seleção também envia histórico e consulta.
-Pode haver uma chamada adicional por turno, mesmo com cache hit. Com modelos
-baratos, o custo pode aumentar. Essas chamadas externas não entram em
-`provider_usage` nem no limite estimado de custo por sessão. Logs de debug do
-SDK podem conter o corpo das mensagens. Testes locais validam contrato e
-políticas, não credenciais, modelos disponíveis, qualidade, preços ou latência.
+Com o endpoint hospedado, o texto é enviado à TypeSafe; a seleção também envia
+histórico e consulta e pode fazer uma chamada por turno, inclusive em cache hit.
+Chamadas externas não entram em `provider_usage` nem no limite estimado de custo
+por sessão. Com `local-jev`, os dados ficam no host local após o download dos
+pesos. Logs de debug do SDK podem conter o corpo das mensagens. Testes do
+llmrivotril validam contrato e políticas, não qualidade nem latência do modelo.
 
 ## Redação de PII
 

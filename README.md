@@ -219,8 +219,11 @@ AG2 supports function-tool events, structured validation and text streaming
 (AG2 1.3+, Python 3.11+). See [integrations](docs/integrations.md).
 Run [local comparisons](docs/local-benchmark.md) without a model account.
 Optional [Jev checks and context selection](docs/guardrails-and-safety.md#jev-triage-guardrail)
-are available through `llmrivotril[jev]`. They send text to TypeSafe and may add
-cost; input guardrails can run in a bounded pool with `parallel_guardrails=True`.
+are available through `llmrivotril[jev]`. They use TypeSafe by default or a
+local System One-compatible server such as
+[`local-jev`](https://github.com/amithgc/local-jev) with `base_url=`; local
+inference has no per-call provider charge. Input guardrails can run in a bounded
+pool with `parallel_guardrails=True`.
 Set `max_concurrent_calls` to bound provider concurrency per agent. Explicitly
 close streams when stopping early; see [reliability](docs/reliability.md).
 

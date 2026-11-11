@@ -142,6 +142,28 @@ def test_jev_failure_does_not_disclose_sdk_error_or_key(caplog):
     assert "secret-input-and-key" not in caplog.text
 
 
+def test_local_base_url_is_passed_to_sdk(monkeypatch):
+    from llmrivotril import JevContextSelector
+
+    sdk = SimpleNamespace(
+        Noul=MagicMock(),
+        RetryPolicy=MagicMock(),
+        TypeSafeClient=MagicMock(return_value=MagicMock()),
+    )
+    monkeypatch.setitem(sys.modules, "typesafe_sdk", sdk)
+    guardrail = JevGuardrail(
+        base_url="http://127.0.0.1:8765", api_key="local", model="llm-qwen3.5-4b"
+    )
+    guardrail._get_client()
+    kwargs = sdk.TypeSafeClient.call_args.kwargs
+    assert kwargs["base_url"] == "http://127.0.0.1:8765"
+    assert kwargs["api_key"] == "local"
+    assert kwargs["model"] == "llm-qwen3.5-4b"
+
+    selector = JevContextSelector(base_url="http://127.0.0.1:8765", api_key="local")
+    assert selector._jev.base_url == "http://127.0.0.1:8765"
+
+
 def test_selector_keeps_user_assistant_pairs_and_last_group():
     from llmrivotril import JevContextSelector
 

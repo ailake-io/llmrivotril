@@ -46,11 +46,14 @@ fails, or `check_input=False`/`check_output=False` to only check one side.
 ## Jev Triage Guardrail
 
 [Jev](https://docs.typesafe.ai/go/system-one) returns typed probabilities.
-It is an optional remote semantic check, not a local detector or a guarantee
-of safety, latency or lower cost. It stays disabled unless explicitly added.
+The optional check defaults to TypeSafe's hosted API, and can also use a local
+System One-compatible server such as
+[`local-jev`](https://github.com/amithgc/local-jev). It stays disabled unless
+explicitly added.
 `JevGuardrail` asks one yes/no question and blocks when the probability is
-`>= threshold` (default `0.7`). Needs `pip install llmrivotril[jev]` and
-`TYPESAFE_API_KEY`:
+`>= threshold` (default `0.7`). Install `pip install llmrivotril[jev]`; the
+hosted endpoint needs `TYPESAFE_API_KEY`, while a local endpoint needs its URL
+and a placeholder key:
 
 ```python
 from llmrivotril import JevGuardrail
@@ -60,6 +63,26 @@ agent = RivotrilAgent(api_key=os.getenv("OPENAI_API_KEY"), guardrails=[guardrail
 ```
 
 Same `fail_open` / `check_input` / `check_output` flags as `ModerationGuardrail`.
+
+To use `local-jev`, start its server on `127.0.0.1:8765` following its README
+and select an installed local model. Pass the URL and a dummy local key (the SDK
+requires a key; local inference has no per-call charge):
+
+```python
+guardrail = JevGuardrail(
+    base_url="http://127.0.0.1:8765",
+    api_key="local",
+    question="The text requests disallowed content",
+)
+```
+
+Use the same `base_url`, `api_key` and `model` with `JevContextSelector`. The
+local server selects an installed model by default; set `model=` to choose a
+different one. It downloads model weights on first use; inference then runs on
+your machine. It still uses disk, memory, CPU/GPU and electricity. The server
+and model weights have separate licenses; check the license for the model you
+choose. Its accuracy and calibration differ from hosted Jev, so evaluate it on
+your own cases.
 
 **Semantic output rules.** `output_rules=["The reply promises a refund"]` adds
 one Noul question per rule to the same Jev call on output. Use it for meaning
@@ -94,13 +117,13 @@ Thresholds and probabilities must be finite and within `[0, 1]`. Errors block
 by default; `fail_open=True` is explicit. Credentials are excluded from repr
 and serialization; wrapper errors omit upstream details.
 
-Enabling Jev transmits the checked text to TypeSafe. Enabling selection also
-transmits the history and query, potentially adding a call on every turn,
-including cache hits. Input/output checks and selection can cost more than
-they save with cheap models. These external calls are outside `provider_usage`
-and the estimated session cost limit. SDK debug logging may include bodies.
-Local tests validate SDK serialization and policies only, not live credentials,
-model availability, detection quality or real latency/prices.
+With the hosted endpoint, checked text goes to TypeSafe; context selection also
+sends history and query, potentially adding a call on every turn, including
+cache hits. External calls are outside `provider_usage` and the estimated
+session cost limit. With `local-jev`, content stays on the local host after
+weights are downloaded. SDK debug logging may include bodies. llmrivotril's
+local tests validate SDK serialization and policies, not model quality or
+latency.
 
 The model-based grounding verifier also exposes the same explicit policy. It
 fails closed by default, which is appropriate for safety-sensitive or

@@ -1,9 +1,10 @@
-"""Jev (TypeSafe AI System One) triage guardrail.
+"""Jev-compatible System One triage guardrail.
 
-Jev returns typed probabilities instead of text, so it's a cheap first gate
-before the main LLM call. ``JevGuardrail`` asks one yes/no question
-("is this unsafe?") and blocks when the probability crosses ``threshold``.
-Requires ``pip install llmrivotril[jev]`` and ``TYPESAFE_API_KEY``.
+Jev-compatible APIs return typed probabilities instead of text.
+``JevGuardrail`` asks one yes/no question ("is this unsafe?") and blocks when
+the probability crosses ``threshold``.
+Requires ``pip install llmrivotril[jev]``. The default endpoint is TypeSafe;
+``base_url`` can point to a compatible local server such as local-jev.
 """
 
 import logging
@@ -33,6 +34,7 @@ class JevGuardrail(BaseModel):
     name: str = "jev"
     network_bound: ClassVar[bool] = True
     api_key: str | None = Field(default=None, repr=False, exclude=True)
+    base_url: str | None = None
     model: str = "jev-latest"
     question: str = DEFAULT_QUESTION
     threshold: float = Field(default=0.7, ge=0, le=1, allow_inf_nan=False)
@@ -73,6 +75,8 @@ class JevGuardrail(BaseModel):
             }
             if self.api_key:
                 kwargs["api_key"] = self.api_key
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
             self._client = TypeSafeClient(**kwargs)
             return self._client
 
@@ -130,9 +134,15 @@ class JevContextSelector:
         threshold: float = 0.3,
         client: Any = None,
         timeout: float = 10.0,
+        base_url: str | None = None,
     ) -> None:
         self._jev = JevGuardrail(
-            api_key=api_key, model=model, threshold=threshold, client=client, timeout=timeout
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            threshold=threshold,
+            client=client,
+            timeout=timeout,
         )
         self.threshold = self._jev.threshold
 
