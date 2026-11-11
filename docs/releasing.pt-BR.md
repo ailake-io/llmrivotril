@@ -48,7 +48,7 @@ Não reutilize uma versão que já foi enviada: os arquivos de release do PyPI
 são imutáveis. Atualize o changelog e a versão do pacote antes de criar uma
 nova tag.
 
-## Status atual do release
+## Registro do release anterior (0.1.6)
 
 A versão `0.1.6` foi publicada com sucesso com wheel e source distribution
 pelo workflow com token. Alterações em `[Unreleased]` não fazem parte dessa
