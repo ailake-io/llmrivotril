@@ -208,6 +208,33 @@ python -m pip install -c .github/constraints-runtime.txt \
 
 The GitHub Actions workflow runs linting, type checking, tests, and package builds on Python 3.10–3.15.
 
+Set `max_output_tokens` for a native per-generation output budget, including
+follow-ups and summaries. This is not a cumulative spending cap.
+For supported text-only OpenAI/Azure sessions, `max_session_cost_usd` plus
+explicit input/output prices enables an estimated session cost limit using
+atomic local reservations. See
+[reservation limits and accounting](docs/reliability.md); provider billing can
+still differ from local estimates. `provider_usage` tracks additional calls.
+AG2 supports function-tool events, structured validation and text streaming
+(AG2 1.3+, Python 3.11+). See [integrations](docs/integrations.md).
+Run [local comparisons](docs/local-benchmark.md) without a model account.
+Optional [Jev checks and context selection](docs/guardrails-and-safety.md#jev-triage-guardrail)
+are available through `llmrivotril[jev]`. They use TypeSafe by default or a
+local System One-compatible server such as
+[`local-jev`](https://github.com/amithgc/local-jev) with `base_url=`; local
+inference has no per-call provider charge. Ollama 0.35+ also supports this API;
+see the [local setup](docs/guardrails-and-safety.md#jev-triage-guardrail).
+Input guardrails can run in a bounded pool with `parallel_guardrails=True`.
+Set `max_concurrent_calls` to bound provider concurrency per agent. Explicitly
+close streams when stopping early; see [reliability](docs/reliability.md).
+
+Offline SDK contracts: `pytest -q tests/test_http_contracts.py` uses in-memory
+HTTP with dummy credentials. For telemetry without request or error content,
+pass `MetricsCollector(include_content=False)` to the agent. See
+[observability](docs/observability.md).
+
+Optional size controls: `max_context_chars`, `max_attachment_bytes`, and `max_response_chars` accept positive integers (default `None`). Response checks run locally and do not cap provider billing. See [configuration](docs/configuration.md) for streaming and attachment semantics.
+
 ## License
 
 MIT License — see [LICENSE](https://github.com/ailake-io/llmrivotril/blob/main/LICENSE).

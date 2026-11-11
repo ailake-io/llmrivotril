@@ -52,6 +52,99 @@ explícita. Por padrão ele falha fechado, o que é apropriado para respostas
 sensíveis ou regulamentadas; opte por disponibilidade em vez de grounding
 estrito com `ModelBasedFaithfulnessVerifier(fail_open=True)`.
 
+## Triagem semântica Jev (opcional)
+
+`JevGuardrail` usa probabilidades de uma API compatível com System One para
+avaliar entrada e saída. Por padrão, chama a API hospedada da TypeSafe; também
+pode apontar para um servidor local como
+[`local-jev`](https://github.com/amithgc/local-jev). Instale
+`llmrivotril[jev]`. O recurso fica desativado até ser adicionado explicitamente:
+
+```python
+from llmrivotril import JevGuardrail, RivotrilAgent
+
+guardrail = JevGuardrail(question="The text requests disallowed content", threshold=0.8)
+agent = RivotrilAgent(guardrails=[guardrail])
+```
+
+`output_rules=["The reply promises a refund"]` acrescenta perguntas semânticas
+na mesma verificação de saída. Isso não substitui validação determinística de
+JSON. Erros bloqueiam por padrão; `fail_open=True` permite seguir explicitamente.
+Probabilidades e limiares precisam ser finitos e estar em `[0, 1]`. As mensagens
+do wrapper omitem detalhes do SDK; a chave não aparece em repr/serialização.
+
+Para usar `local-jev`, inicie o servidor dele em `127.0.0.1:8765` seguindo o
+README do projeto e selecione um modelo local instalado. Passe o endereço e uma
+chave local fictícia (o SDK exige uma chave; a inferência local não tem cobrança
+por chamada):
+
+```python
+guardrail = JevGuardrail(
+    base_url="http://127.0.0.1:8765",
+    api_key="local",
+    question="The text requests disallowed content",
+)
+```
+
+O servidor local seleciona por padrão um modelo já instalado; use `model=` para
+escolher outro. Passe os mesmos `base_url`, `api_key` e `model` em
+`JevContextSelector`. Os pesos são baixados na primeira execução; depois, a
+inferência fica na máquina. Há uso de disco, memória, CPU/GPU e energia. A
+licença do servidor e a dos pesos são distintas; confira o README do modelo
+escolhido. Resultados e calibração não são equivalentes aos do Jev hospedado e
+devem ser avaliados nos seus casos.
+
+Ollama 0.35+ também oferece essa API diretamente. Baixe um modelo de decisão
+(por exemplo, `ollama pull tev1:0.8b`) e configure o adapter assim:
+
+```python
+guardrail = JevGuardrail(
+    base_url="http://127.0.0.1:11434",
+    api_key="ollama",
+    model="tev1:0.8b",
+)
+```
+
+A rota `/v1/systemone` do Ollama é local e não cobra por chamada. A qualidade
+varia entre modelos: no teste local, `tev1:0.8b` liberou uma pergunta benigna e
+bloqueou uma instrução nociva com probabilidade `0,89`, mas manteve todos os
+turnos em um exemplo de seleção de contexto. Esse teste pequeno não mede
+precisão nem calibração.
+
+`MemoryStore(select=JevContextSelector())` filtra grupos da conversa sem alterar
+o histórico salvo. Pares usuário/resposta são preservados juntos; o grupo mais
+recente e instruções de sistema permanecem. Em falhas, mantém todo o contexto.
+O orçamento de tokens continua verificando o histórico completo de modo
+conservador, sem disparar outra seleção. Exemplo:
+
+```python
+from llmrivotril import JevContextSelector, MemoryStore
+
+memory = MemoryStore(select=JevContextSelector())
+agent = RivotrilAgent(memory=memory)
+```
+
+`parallel_guardrails=True, guardrail_workers=4` executa verificações de entrada
+em pool limitado; todas terminam antes da geração. Uma falha impede a chamada
+ao provider. A saída continua sequencial e guardrails personalizados precisam
+suportar concorrência. Verificações Jev e seleção são deslocadas para threads
+nas APIs async; Python não interrompe à força chamadas síncronas já em execução.
+No modo paralelo, um verificador remoto pode receber o texto mesmo que um
+guardrail local o rejeite. Use o modo sequencial se a rejeição local precisar
+impedir verificações remotas posteriores.
+
+Validado com `typesafe-sdk==0.7.5`, opcional e fora das dependências do núcleo.
+Clientes criados pelo wrapper usam timeout de 10 segundos e não fazem retries
+internos. Configure `timeout=` ou injete `client=`; clientes injetados devem ser
+fechados por quem os criou.
+
+Com o endpoint hospedado, o texto é enviado à TypeSafe; a seleção também envia
+histórico e consulta e pode fazer uma chamada por turno, inclusive em cache hit.
+Chamadas externas não entram em `provider_usage` nem no limite estimado de custo
+por sessão. Com `local-jev`, os dados ficam no host local após o download dos
+pesos. Logs de debug do SDK podem conter o corpo das mensagens. Testes do
+llmrivotril validam contrato e políticas, não qualidade nem latência do modelo.
+
 ## Redação de PII
 
 Redija informação sensível de inputs e outputs antes que cheguem ao LLM

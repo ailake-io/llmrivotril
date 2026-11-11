@@ -145,3 +145,61 @@ agent = RivotrilAgent(
 
 agent.run("Return a JSON answer.", response_model=Answer)
 ```
+
+## Chamadas concorrentes ao provider
+
+`max_output_tokens=256` envia um orçamento de saída em cada geração, incluindo
+continuações de ferramentas, reparos de schema, streaming e resumos de memória.
+OpenAI/Azure usam `max_completion_tokens`; Anthropic/Cohere usam `max_tokens`;
+Gemini usa `config.max_output_tokens`; Bedrock usa `inferenceConfig.maxTokens`.
+Endpoints compatíveis com OpenAI precisam aceitar `max_completion_tokens` para
+usar a opção. O padrão `None` preserva o comportamento existente. Um limite
+baixo pode truncar JSON ou argumentos de ferramentas; tokens de raciocínio
+também podem contar, conforme o provider. Retries e novas rodadas recebem
+orçamentos separados: não é reserva cumulativa, teto em dólares nem contabilidade
+completa por si só. Todas as gerações visíveis, incluindo resumos internos,
+agora aparecem na telemetria `provider_usage`.
+
+### Limite estimado de custo por sessão
+
+Configure juntos `max_session_cost_usd`, `max_output_tokens`,
+`input_price_per_million` e `output_price_per_million`. As tarifas são USD por
+milhão de tokens e devem corresponder ao seu contrato. Exemplo ilustrativo:
+
+```python
+agent = RivotrilAgent(
+    max_output_tokens=256,
+    max_session_cost_usd=0.02,
+    input_price_per_million=1.0,   # exemplo, não é cotação de um provider
+    output_price_per_million=2.0,
+)
+```
+
+Antes de cada chamada ao SDK, o agente reserva atomicamente uma estimativa da
+entrada serializada, uma margem de 256 tokens e o máximo de saída. Sem saldo,
+`CostBudgetExceededError` impede a chamada. Retries visíveis, continuações,
+reparos e resumos reservam separadamente; cache hits não chamam o provider.
+Uso completo informado pelo SDK ajusta a reserva. Falhas, uso incompleto e
+streams cancelados mantêm toda a reserva. `agent.session_budget.summary()`
+mostra valores comprometidos/reservados e eventual consumo superior à estimativa.
+
+O limite estimado de custo exige clientes novos dos SDKs OpenAI/Azure compatíveis
+embutidos e mensagens somente de texto. Retries internos do SDK são desativados;
+o instructor recebe uma tentativa por chamada estruturada reservada. Outros
+providers geram erro explícito ao ativar esse modo. O controle fica em memória
+por agente, sem distribuição nem restauração pelo arquivo de métricas. É um
+limite estimado local, não garantia da fatura: tokenizadores, tarifas, taxas,
+comportamento do provider, ferramentas e chamadas externas podem divergir.
+Use limites do próprio provider para um teto oficial de conta.
+
+Use `RivotrilAgent(max_concurrent_calls=2)` para limitar chamadas simultâneas
+desse agente, incluindo streams. Cache hits não ocupam uma vaga. A vaga cobre
+retries e é liberada antes das ferramentas e chamadas de continuação. A espera
+assíncrona pode ser cancelada sem perder capacidade. Não é um limitador
+distribuído nem isolamento de sessões: use agentes/memórias separados para
+conversas independentes. Resumos internos de histórico não são cobertos.
+
+Ao parar cedo, feche streams síncronos com `close()` e assíncronos com
+`await aclose()`. Apenas `break` não garante fechamento imediato. O fechamento
+explícito chega ao provider e libera capacidade, assim como conclusão normal,
+erros e limites de resposta. Tokens já gerados ou cobrados não são recuperados.

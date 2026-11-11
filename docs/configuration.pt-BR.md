@@ -46,6 +46,14 @@ Precedência: valores padrão do arquivo < variáveis de ambiente < argumentos d
 | `RIVOTRIL_CIRCUIT_RECOVERY_TIMEOUT` | float | Segundos antes do circuit tentar novamente. |
 | `RIVOTRIL_MAX_PROMPT_TOKENS` | int | Rejeita prompts acima dessa contagem de tokens. |
 | `RIVOTRIL_MAX_PROMPT_CHARS` | int | Rejeita prompts de texto acima desse número de caracteres antes da tokenização. |
+| `RIVOTRIL_MAX_CONTEXT_CHARS` | int | Máximo de caracteres do contexto recuperado (`max_context_chars`). |
+| `RIVOTRIL_MAX_ATTACHMENT_BYTES` | int | Máximo de bytes JSON UTF-8 das partes não textuais (`max_attachment_bytes`), incluindo base64 e metadados; downloads de URLs não são medidos. |
+| `RIVOTRIL_MAX_RESPONSE_CHARS` | int | Máximo de caracteres da resposta (`max_response_chars`); verificado antes de entregar chunks e atualizar memória. Chunks já entregues continuam visíveis. |
+| `RIVOTRIL_MAX_CONCURRENT_CALLS` | int | Capacidade por agente compartilhada entre chamadas sync, async e streams (`max_concurrent_calls`); inteiro positivo ou `None` (sem limite). |
+| `RIVOTRIL_MAX_OUTPUT_TOKENS` | int | Limite nativo de geração por chamada (`max_output_tokens`); inteiro positivo ou `None`. Inclui continuações, reparos de schema, resumos e streaming. Não é teto de gasto por sessão. |
+| `RIVOTRIL_MAX_SESSION_COST_USD` | float | Limite estimado de custo por sessão (`max_session_cost_usd`); exige tarifas e limite de saída explícitos. Não é garantia de teto na fatura do provider. Veja as limitações em confiabilidade. |
+| `RIVOTRIL_INPUT_PRICE_PER_MILLION` | float | Tarifa explícita em USD por milhão de tokens de entrada. |
+| `RIVOTRIL_OUTPUT_PRICE_PER_MILLION` | float | Tarifa explícita em USD por milhão de tokens de saída. |
 | `RIVOTRIL_MAX_SESSION_TOKENS` | int | Rejeita execuções que excederiam esse orçamento cumulativo. |
 | `RIVOTRIL_METRICS_PATH` | string | Persiste métricas automaticamente nesse arquivo JSON. |
 | `RIVOTRIL_MEMORY_PATH` | string | Persiste a memória de conversa automaticamente nesse arquivo JSON. |

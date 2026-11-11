@@ -79,6 +79,16 @@ class BaseProvider(ABC):
         self.base_url = base_url
         self.extra_kwargs = kwargs
 
+    def generation_limit_kwargs(self, max_output_tokens: int) -> dict[str, Any]:
+        """Translate the optional per-generation output budget to native SDK fields."""
+        if self.name in {"openai", "azure_openai"}:
+            return {"max_completion_tokens": max_output_tokens}
+        if self.name == "gemini":
+            return {"config": {"max_output_tokens": max_output_tokens}}
+        if self.name == "bedrock":
+            return {"inferenceConfig": {"maxTokens": max_output_tokens}}
+        return {"max_tokens": max_output_tokens}
+
     @abstractmethod
     def complete(
         self,
@@ -305,8 +315,11 @@ class OpenAIProvider(BaseProvider):
         stream = await self._get_async_base_client().chat.completions.create(
             model=model, messages=messages, **stream_kwargs
         )
-        async for chunk in stream:
-            yield chunk
+        try:
+            async for chunk in stream:
+                yield chunk
+        finally:
+            await stream.close()
 
 
 class AzureOpenAIProvider(OpenAIProvider):
@@ -644,6 +657,7 @@ class CohereProvider(BaseProvider):
         if system:
             request_kwargs["preamble"] = system
 
+        request_kwargs.update(kwargs)
         response = client.chat(**request_kwargs)
         content = response.text
 
@@ -674,6 +688,7 @@ class CohereProvider(BaseProvider):
         if system:
             request_kwargs["preamble"] = system
 
+        request_kwargs.update(kwargs)
         response = await client.chat(**request_kwargs)
         content = response.text
 
@@ -852,7 +867,10 @@ class GeminiProvider(BaseProvider):
 
         request_kwargs = dict(kwargs)
         if system:
-            request_kwargs.setdefault("config", {"system_instruction": system})
+            request_kwargs["config"] = {
+                "system_instruction": system,
+                **request_kwargs.get("config", {}),
+            }
         response = client.models.generate_content(model=model, contents=prompt, **request_kwargs)
         content = response.text
 
@@ -880,7 +898,10 @@ class GeminiProvider(BaseProvider):
 
         request_kwargs = dict(kwargs)
         if system:
-            request_kwargs.setdefault("config", {"system_instruction": system})
+            request_kwargs["config"] = {
+                "system_instruction": system,
+                **request_kwargs.get("config", {}),
+            }
         response = await client.aio.models.generate_content(
             model=model, contents=prompt, **request_kwargs
         )
@@ -905,7 +926,10 @@ class GeminiProvider(BaseProvider):
 
         request_kwargs = dict(kwargs)
         if system:
-            request_kwargs.setdefault("config", {"system_instruction": system})
+            request_kwargs["config"] = {
+                "system_instruction": system,
+                **request_kwargs.get("config", {}),
+            }
         response = client.models.generate_content_stream(
             model=model, contents=prompt, **request_kwargs
         )
@@ -928,7 +952,10 @@ class GeminiProvider(BaseProvider):
 
         request_kwargs = dict(kwargs)
         if system:
-            request_kwargs.setdefault("config", {"system_instruction": system})
+            request_kwargs["config"] = {
+                "system_instruction": system,
+                **request_kwargs.get("config", {}),
+            }
         response = client.aio.models.generate_content_stream(
             model=model, contents=prompt, **request_kwargs
         )

@@ -2,12 +2,14 @@ from .agent import AsyncStreamedStructuredResult, RivotrilAgent, StreamedStructu
 from .cache import BaseCache, DiskCache, InMemoryCache, RedisCache
 from .content import PromptContent
 from .exceptions import (
+    CostBudgetExceededError,
     GuardrailViolationError,
     HallucinationDetectedError,
     LLMRivotrilError,
     TokenBudgetExceededError,
 )
 from .guardrails import Guardrail
+from .jev import JevContextSelector, JevGuardrail
 from .memory import MemoryStore
 from .metrics import MetricsCollector, global_metrics
 from .moderation import ModerationGuardrail
@@ -39,7 +41,7 @@ from .semantic_cache import SemanticCache
 from .tools import ToolCall, ToolRegistry
 from .verifier import ModelBasedFaithfulnessVerifier
 
-__version__ = "0.1.6"
+__version__ = "0.2.0"
 __all__ = [
     "__version__",
     "RivotrilAgent",
@@ -47,6 +49,8 @@ __all__ = [
     "StreamedStructuredResult",
     "AsyncStreamedStructuredResult",
     "Guardrail",
+    "JevContextSelector",
+    "JevGuardrail",
     "ModerationGuardrail",
     "MemoryStore",
     "MetricsCollector",
@@ -61,6 +65,7 @@ __all__ = [
     "GuardrailViolationError",
     "HallucinationDetectedError",
     "TokenBudgetExceededError",
+    "CostBudgetExceededError",
     "discover_plugins",
     "load_plugins",
     "estimate_cost",

@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
+### Local Jev-compatible backend
+
+- Allow Jev guardrails and context selection to target a local System One API
+  through `base_url`, including local-jev and Ollama 0.35+; document setup,
+  costs and model-calibration caveats in English and Portuguese.
+- Add a local-endpoint SDK construction test. Model weights and the server are
+  not downloaded as part of llmrivotril installation.
+
+### Reviewed Jev integration
+
+- Integrate the previously unmerged Jev branch as an optional feature using
+  `typesafe-sdk>=0.7.5,<0.8.0`, validated with the real SDK and local HTTP.
+- Validate finite thresholds/probabilities; omit credentials and upstream error
+  details; configure a default timeout and disable hidden SDK retries.
+- Add safe context selection that preserves conversation groups and the latest
+  exchange, falls back on failure and cannot mutate stored history.
+- Add opt-in bounded parallel input guardrails and offload Jev checks/selection
+  in async APIs. Retain the current publishing workflow and encrypted memory.
+- Validation: 453 passed, 18 skipped with the SDK; 450 passed, 19 skipped with
+  the SDK blocked. Ruff, mypy, build and package metadata checks passed.
+
+- Clarify the feature name as "estimated session cost limit"; preserve
+  `max_session_cost_usd`, `SessionBudget` and `CostBudgetExceededError` API names.
+
+### Session reservations, accounting, AG2 and local comparisons
+
+- Add atomic `max_session_cost_usd` reservations with explicit rates, output
+  bounds and fail-closed admission for supported text-only OpenAI/Azure clients.
+  Failed or incomplete usage retains the reserve; provider invoices can differ.
+- Add persisted `provider_usage` counters for all visible generation invocations,
+  including repairs, tool follow-ups, summaries, failures and streaming; distinguish
+  estimated usage and missing prices. Cache hits are not provider calls.
+- Add AG2 function-call events, ResponseProto validation and native text-stream
+  events. Validate real local Agent/tool execution with AG2 1.3.0; require
+  `ag2>=1.3.0` (the optional extra requires Python 3.11+).
+- Add `scripts/compare_local.py` and bilingual comparison documentation.
+- Fix longest-prefix model pricing and prevent mutation through pricing lookups.
+- Validation: 429 passed, 18 skipped in a Python 3.14 venv with AG2 1.3.0;
+  Ruff, formatting and mypy passed. Synthetic benchmark: exact cache reduced
+  30 provider calls to 1, with identical fixture answers; no real billing claim.
+
+### Generation budgets
+
+- Add optional `max_output_tokens` with native mappings for all six providers,
+  applied to streaming, follow-up calls, schema repairs and memory summaries.
+- Namespace response-cache keys by the configured output budget.
+- Preserve Gemini system instructions when generation config is supplied and
+  forward extra generation arguments in Cohere completion calls.
+- Local Python 3.14 venv validation: 408 passed, 22 skipped, including offline
+  HTTP contracts; Ruff, formatting and mypy passed.
+
+### Concurrency and stream lifecycle
+
+- Add optional per-agent `max_concurrent_calls`, shared by synchronous and
+  asynchronous completion and streaming calls, with cancellable async waiting.
+- Close nested provider streams explicitly on completion, early closure and
+  failures, releasing capacity before tool follow-up calls.
+- Local validation in Python 3.14 venv: 394 passed, 22 skipped.
+
+### Local validation and privacy
+
+- Add offline wire contracts using the real OpenAI SDK for OpenAI-compatible
+  and Azure requests, SSE, errors, timeouts, retries and tool calls.
+- Add `MetricsCollector(include_content=False)` to omit request, response and
+  exception details from metrics, including imported snapshots.
+- Local venv validation: 385 passed, 22 skipped; Ruff and mypy passed.
+
+### Fixed
+
+- Bound latency history while preserving cumulative averages and legacy snapshots.
+- Persist error counts and isolate telemetry snapshots from consumer mutations.
+- Keep keyed fingerprints instead of prompt text in the token-count cache;
+  bypass caching for texts longer than 16384 characters.
+- Add optional context, serialized attachment and response size limits,
+  including checks before yielding streaming chunks.
+
 ### Added
 
 - Add an explicit `max_prompt_chars` guard before tokenization to limit oversized
@@ -15,8 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make `MetricsCollector` log retention configurable with `max_logs`, including
   `max_logs=0` for aggregate-only telemetry.
 - Extend CI and package classifiers through Python 3.15.
-- Temporarily restore the previously working PyPI token workflow while GitHub
-  Actions reports an unexplained zero-job startup failure for Trusted Publishing.
+- Temporarily restore PyPI token publishing and add manual tag recovery after
+  the Actions allowlist blocked artifact and PyPA publish actions.
 
 ## [0.1.6] - 2026-11-10
 
@@ -27,7 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove sensitive exception details and model responses from example/log output.
 - Use keyed SHA3 cache fingerprints so prompt contents are not exposed in cache
   identifiers.
-- Migrate PyPI publishing to GitHub OIDC Trusted Publishing with attestations.
+- Prepare GitHub OIDC Trusted Publishing; the actual publication used the
+  token workflow after the repository Actions policy blocked the publish action.
 
 ### Validation
 

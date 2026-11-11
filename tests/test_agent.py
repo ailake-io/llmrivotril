@@ -71,6 +71,72 @@ def test_agent_without_response_model():
     assert agent.memory.get_context()[-1]["role"] == "assistant"
 
 
+@pytest.mark.asyncio
+async def test_network_guardrail_does_not_block_event_loop():
+    import asyncio
+    from threading import Event
+
+    started, release = Event(), Event()
+
+    class LocalGuard:
+        name = "local-network-double"
+        network_bound = True
+
+        def validate_input(self, text):
+            started.set()
+            assert release.wait(timeout=3)
+
+        def validate_output(self, text, model):
+            pass
+
+    agent, provider = _make_agent(guardrails=[LocalGuard()])
+    provider._acomplete_mock.return_value = ProviderResponse(content="OK")
+    task = asyncio.create_task(agent.run_async("hello"))
+
+    async def wait_started():
+        while not started.is_set():
+            await asyncio.sleep(0.001)
+
+    try:
+        await asyncio.wait_for(wait_started(), timeout=2)
+        provider._acomplete_mock.assert_not_called()
+    finally:
+        release.set()
+    assert await task == "OK"
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_output_token_budget_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        _make_agent(max_output_tokens=value)
+
+
+def test_output_budget_reaches_generation_and_summary():
+    agent, provider = _make_agent(max_output_tokens=20)
+    provider._complete_mock.return_value = ProviderResponse(content="OK")
+    agent.run("hi")
+    assert provider._complete_mock.call_args.kwargs["max_tokens"] == 20
+    assert agent._summarize_history("history") == "OK"
+    assert provider._complete_mock.call_args.kwargs["max_tokens"] == 20
+
+
+@pytest.mark.asyncio
+async def test_async_output_budget_reaches_provider():
+    agent, provider = _make_agent(max_output_tokens=20)
+    provider._acomplete_mock.return_value = ProviderResponse(content="OK")
+    await agent.run_async("hi")
+    assert provider._acomplete_mock.call_args.kwargs["max_tokens"] == 20
+
+
+def test_output_budget_namespaces_custom_cache_keys():
+    agent, _ = _make_agent(max_output_tokens=20, cache_key_fn=lambda *args: "custom")
+    first = agent._build_cache_key([], None, None)
+    agent.max_output_tokens = 30
+    assert first != agent._build_cache_key([], None, None)
+    agent.max_output_tokens = None
+    assert agent._build_cache_key([], None, None) == "custom"
+
+
 def test_agent_rejects_prompt_above_character_limit():
     agent, _ = _make_agent(max_prompt_chars=4)
 
@@ -112,12 +178,85 @@ def test_agent_uses_provider_retryable_exceptions():
     assert agent.circuit_breaker.expected_exception == (ValueError,)
 
 
+def test_input_and_response_limits():
+    agent, provider = _make_agent(
+        max_context_chars=3, max_attachment_bytes=10, max_response_chars=3
+    )
+    with pytest.raises(ValueError, match="Context"):
+        agent.run("hi", context_sources="long context")
+    with pytest.raises(ValueError, match="Attachments"):
+        agent.run([{"type": "image_url", "image_url": {"url": "data:large"}}])
+    provider._complete_mock.assert_not_called()
+    provider._complete_mock.return_value = ProviderResponse(content="too long")
+    with pytest.raises(GuardrailViolationError, match="max_response_chars"):
+        agent.run("hi")
+    assert agent.memory.get_context() == []
+
+
+def test_stream_limit_rejects_chunk_before_yield():
+    agent, provider = _make_agent(max_response_chars=3)
+    provider._stream_chunks = ["ab", "cd"]
+    stream = agent.run_stream("hi")
+    assert next(stream) == "ab"
+    with pytest.raises(GuardrailViolationError, match="max_response_chars"):
+        next(stream)
+
+
+def test_token_cache_retains_only_fingerprints():
+    agent, _ = _make_agent()
+    agent._count_tokens("private message")
+    assert "private message" not in repr(agent._token_count_cache)
+    before = len(agent._token_count_cache)
+    agent._count_tokens("x" * 20000)
+    assert len(agent._token_count_cache) == before
+
+
 def test_agent_with_guardrail_block():
     guardrail = Guardrail(name="safe", disallowed_keywords=["forbidden"])
     agent, _ = _make_agent(guardrails=[guardrail])
 
     with pytest.raises(GuardrailViolationError):
         agent.run("forbidden word")
+
+
+def test_closing_public_stream_closes_provider_and_releases_capacity():
+    agent, provider = _make_agent(max_concurrent_calls=1)
+    closed = []
+
+    def stream(**kwargs):
+        try:
+            yield "first"
+            yield "second"
+        finally:
+            closed.append(True)
+
+    provider.stream = stream
+    result = agent.run_stream("hi")
+    assert next(result) == "first"
+    result.close()
+    assert closed == [True]
+    assert agent._capacity._active == 0
+    assert agent.memory.get_context() == []
+
+
+@pytest.mark.asyncio
+async def test_closing_public_async_stream_closes_provider():
+    agent, provider = _make_agent(max_concurrent_calls=1)
+    closed = []
+
+    async def stream(**kwargs):
+        try:
+            yield "first"
+            yield "second"
+        finally:
+            closed.append(True)
+
+    provider.astream = stream
+    result = agent.run_stream_async("hi")
+    assert await anext(result) == "first"
+    await result.aclose()
+    assert closed == [True]
+    assert agent._capacity._active == 0
 
 
 def test_agent_with_response_model():
@@ -705,6 +844,32 @@ def test_agent_repairs_invalid_structured_response():
     assert isinstance(result, BrokenResponse)
     assert result.answer == "good"
     assert provider._complete_mock.call_count == 2
+
+
+def test_provider_accounting_counts_repairs_and_summaries_but_not_cache_hits():
+    from llmrivotril import InMemoryCache
+    from llmrivotril.metrics import MetricsCollector
+
+    metrics = MetricsCollector(include_content=False)
+    agent, provider = _make_agent(metrics=metrics, schema_repair_attempts=1, cache=InMemoryCache())
+    provider._complete_mock.side_effect = [
+        ProviderResponse(content='{"text": 123}'),
+        ProviderResponse(content='{"text": "good"}'),
+        ProviderResponse(content="summary"),
+    ]
+    assert agent.run("question", response_model=Answer).text == "good"
+    assert metrics.get_summary()["provider_usage"]["calls"] == 2
+    assert agent._summarize_history("history") == "summary"
+    assert metrics.get_summary()["provider_usage"]["calls"] == 3
+    provider._complete_mock.side_effect = None
+    provider._complete_mock.return_value = ProviderResponse(content="cached")
+    agent.memory.clear()
+    agent.run("same")
+    calls = provider._complete_mock.call_count
+    agent.memory.clear()
+    agent.run("same")
+    assert provider._complete_mock.call_count == calls
+    assert metrics.get_summary()["provider_usage"]["calls"] == 4
 
 
 def test_agent_schema_repair_gives_up():

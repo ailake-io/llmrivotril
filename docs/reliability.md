@@ -142,3 +142,62 @@ agent = RivotrilAgent(
 
 agent.run("Return a JSON answer.", response_model=Answer)
 ```
+
+## Concurrent provider calls
+
+`max_output_tokens=256` sends an output budget with each generation, including
+tool follow-ups, schema repair, streaming and memory summaries. OpenAI/Azure
+use `max_completion_tokens`; Anthropic/Cohere use `max_tokens`; Gemini uses
+`config.max_output_tokens`; Bedrock uses `inferenceConfig.maxTokens`.
+OpenAI-compatible endpoints must support `max_completion_tokens` to use this
+option. The default `None` preserves existing provider behavior. A low budget
+can truncate JSON or tool arguments; provider reasoning tokens may also count
+toward the limit. Retries and additional rounds have separate budgets: this is
+not a cumulative financial cap on its own. All visible generation invocations,
+including internal summaries, now appear in `provider_usage` telemetry.
+
+### Estimated session cost limit
+
+Set `max_session_cost_usd`, `max_output_tokens`, `input_price_per_million` and
+`output_price_per_million` together. Prices are explicit USD per million tokens;
+use your own provider contract, not an assumed live price. For example:
+
+```python
+agent = RivotrilAgent(
+    max_output_tokens=256,
+    max_session_cost_usd=0.02,
+    input_price_per_million=1.0,   # illustrative, not a provider price quote
+    output_price_per_million=2.0,
+)
+```
+
+Before each SDK invocation the agent atomically reserves estimated serialized
+input tokens plus a 256-token framing allowance and the maximum output budget.
+If funds are insufficient, `CostBudgetExceededError` prevents the call. Visible
+retries, tool follow-ups, schema repairs and summaries reserve independently;
+cache hits make no provider calls. Complete reported usage settles the reserve.
+Failures, incomplete usage and cancelled streams retain the entire reservation.
+Inspect `agent.session_budget.summary()` for committed/reserved amounts and an
+overrun flag if reported consumption exceeded the local estimate.
+
+Estimated session cost limits currently require fresh built-in OpenAI/Azure-compatible
+SDK clients and text-only messages. Hidden SDK retries are disabled; instructor
+gets one attempt per reserved structured call. Other provider types fail fast
+when estimated session cost limits are enabled. This ledger is in memory per agent,
+not distributed or restored by metrics persistence. It is a local estimated
+spending boundary, not a guarantee of provider invoicing: different tokenizers,
+fees, prices, provider behavior, tool charges and external calls can differ.
+Use provider-side spending controls for an authoritative account-wide cap.
+
+Use `RivotrilAgent(max_concurrent_calls=2)` to bound overlapping provider calls
+from that agent, including streams. Cache hits do not occupy a slot. The slot
+covers retries and is released before tool execution and follow-up calls.
+Async waiters can be cancelled without stranding capacity. This is not a
+distributed limiter or session isolation: use separate agents/memory stores
+for independent conversations. Internal history summarization is not covered.
+
+Close synchronous streams with `close()` and asynchronous streams with
+`await aclose()` when stopping early. A bare `break` does not promise immediate
+closure. Explicit closure propagates to the provider and releases capacity;
+normal completion, errors and response-size limits also release it. Already
+generated or billed tokens cannot be recovered by closing the connection.

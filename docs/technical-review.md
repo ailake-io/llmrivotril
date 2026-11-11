@@ -6,10 +6,62 @@ regressão e documentação correspondente.
 
 > **Status atual:** esta é uma revisão histórica e mantém as datas e versões
 > originais para rastreabilidade. Para o estado publicado mais recente, use o
-> `README`, o `CHANGELOG.md` e `docs/releasing.md`. A versão em preparação nesta
-> linha de desenvolvimento é `0.1.5`.
+> `README`, o `CHANGELOG.md` e `docs/releasing.md`. As próximas alterações são
+> registradas em `[Unreleased]`, sem antecipar uma versão ainda não publicada.
+
+## Revisão local de acompanhamento — 10/11/2026
+
+A publicação da `0.1.6` foi confirmada na sessão anterior. O bloqueio de
+publicação veio da lista de actions permitidas do repositório. O fluxo atual
+usa token e admite recuperação manual de tags; mantenha o token até validar
+uma publicação OIDC após ajustar essa política.
+
+Achados da revisão (corrigidos localmente na rodada seguinte):
+
+- `MetricsCollector.latencies` cresce a cada execução, mesmo com `max_logs=0`.
+  Substituir por agregação incremental ou histórico limitado, preservando a
+  média e a leitura de arquivos antigos.
+- `MetricsCollector.to_dict()` não inclui `errors_total`, embora `from_dict()`
+  leia esse campo. Adicionar persistência e regressão para preservar a taxa
+  de sucesso após reiniciar o processo.
+- `get_summary()` devolve a lista interna de logs e os snapshots fazem cópias
+  rasas. Impedir que consumidores alterem o estado interno pelas respostas.
+- O cache de contagem de tokens limita entradas, mas retém textos completos
+  e não limita bytes. Adicionar limite de tamanho e avaliar identificadores
+  protegidos para reduzir retenção de conteúdo sensível.
+- `max_prompt_chars` limita a projeção textual do prompt, sem limitar anexos,
+  contexto recuperado ou saída. Documentar e implementar limites próprios
+  para esses componentes.
+
+Os testes de CI já observados nesta sessão passaram em Python 3.10–3.15.
+Isso não valida automaticamente todos os extras em cada interpretador nem
+substitui os contratos de serviços externos e testes reais opcionais.
+
+Validação das correções: 372 testes passaram, 22 pulados em venv Python 3.14;
+Ruff, formatação e mypy passaram. Histórico de latências limitado a 1000 com
+média global preservada; erros persistidos; snapshots independentes; cache de
+tokens com HMAC, 4096 entradas e bypass para textos acima de 16384 caracteres.
+Limites opcionais de contexto, anexos serializados e resposta adicionados.
 
 ## Pontos positivos
+
+Revisão da branch Jev: integração aproveitada somente como opção explícita,
+com SDK real 0.7.5 e testes HTTP locais. O ganho potencial é triagem semântica
+e redução de contexto; economia, precisão e latência reais não foram medidas.
+Foram corrigidos exposição de erros/chaves, probabilidades inválidas, pool
+sem limite e seleção de turnos isolados. Contexto selecionado precisa ser
+subsequência do histórico; falhas preservam a memória original. A publicação
+atual e a criptografia foram preservadas na resolução dos conflitos.
+
+Atualização da rodada local: foram adicionados limites estimados de custo por agente,
+contabilidade `provider_usage` das gerações visíveis e benchmark comparativo
+sintético. O adapter AG2 agora devolve ferramentas para execução pelo
+orquestrador, valida schemas e envia eventos de streaming textual; o teste
+usa `ag2.Agent` e ferramenta reais com provider local. A versão mínima do
+extra é 1.3.0/Python 3.11. As notas históricas abaixo que diziam que essas
+funcionalidades não existiam devem ser lidas como estado da revisão original.
+As reservas são estimativas locais, não garantia da fatura nem limite global
+distribuído; consulte as restrições atuais em `reliability.md`.
 
 - Estrutura `src/` adequada para distribuição como pacote Python.
 - API síncrona, assíncrona e de streaming.

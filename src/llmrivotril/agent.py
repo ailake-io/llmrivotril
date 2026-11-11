@@ -2,15 +2,19 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing, closing, contextmanager
 from threading import Lock
 from typing import Any, cast
 
 import tiktoken
 from pydantic import BaseModel, ValidationError
 
-from .cache import BaseCache, DiskCache, cache_key
+from ._async import run_sync
+from .budget import SessionBudget
+from .cache import BaseCache, DiskCache, _cache_fingerprint, cache_key
+from .concurrency import CapacityLimiter
 from .config import load_config
 from .content import PromptContent, content_to_text, redact_content
 from .exceptions import (
@@ -94,6 +98,16 @@ class RivotrilAgent:
         schema_repair_attempts: Any = _UNSET,
         redact_pii: Any = _UNSET,
         pii_redactor: PIIRedactor | None = None,
+        max_context_chars: Any = _UNSET,
+        max_attachment_bytes: Any = _UNSET,
+        max_response_chars: Any = _UNSET,
+        max_concurrent_calls: Any = _UNSET,
+        max_output_tokens: Any = _UNSET,
+        max_session_cost_usd: Any = _UNSET,
+        input_price_per_million: Any = _UNSET,
+        output_price_per_million: Any = _UNSET,
+        parallel_guardrails: bool = False,
+        guardrail_workers: int = 4,
     ) -> None:
         config = load_config()
 
@@ -107,6 +121,23 @@ class RivotrilAgent:
         self.base_url = _resolve(base_url, "base_url", None)
         self.system_prompt = _resolve(system_prompt, "system_prompt", None)
         self.request_timeout = _resolve(request_timeout, "request_timeout", None)
+        self.max_output_tokens = _resolve(max_output_tokens, "max_output_tokens", None)
+        cost_limit = _resolve(max_session_cost_usd, "max_session_cost_usd", None)
+        input_price = _resolve(input_price_per_million, "input_price_per_million", None)
+        output_price = _resolve(output_price_per_million, "output_price_per_million", None)
+        self.session_budget: SessionBudget | None = None
+        if cost_limit is not None:
+            if self.max_output_tokens is None or input_price is None or output_price is None:
+                raise ValueError(
+                    "Cost budgets require max_output_tokens and explicit input/output prices"
+                )
+            self.session_budget = SessionBudget(cost_limit, input_price, output_price)
+        if self.max_output_tokens is not None and (
+            isinstance(self.max_output_tokens, bool)
+            or not isinstance(self.max_output_tokens, int)
+            or self.max_output_tokens < 1
+        ):
+            raise ValueError("max_output_tokens must be a positive integer or None")
         rate_limit_max_calls = _resolve(rate_limit_max_calls, "rate_limit_max_calls", 0.0)
         rate_limit_per_seconds = _resolve(rate_limit_per_seconds, "rate_limit_per_seconds", 1.0)
         retry_max_attempts = _resolve(retry_max_attempts, "retry_max_attempts", 3)
@@ -122,6 +153,16 @@ class RivotrilAgent:
         self.max_session_tokens = _resolve(max_session_tokens, "max_session_tokens", None)
         self.max_prompt_tokens = _resolve(max_prompt_tokens, "max_prompt_tokens", None)
         self.max_prompt_chars = _resolve(max_prompt_chars, "max_prompt_chars", None)
+        self.max_context_chars = _resolve(max_context_chars, "max_context_chars", None)
+        self.max_attachment_bytes = _resolve(max_attachment_bytes, "max_attachment_bytes", None)
+        self.max_response_chars = _resolve(max_response_chars, "max_response_chars", None)
+        self._capacity = CapacityLimiter(
+            _resolve(max_concurrent_calls, "max_concurrent_calls", None)
+        )
+        for name in ("max_context_chars", "max_attachment_bytes", "max_response_chars"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, int) or value <= 0):
+                raise ValueError(f"{name} must be a positive integer when configured")
         if self.max_prompt_chars is not None and self.max_prompt_chars <= 0:
             raise ValueError("max_prompt_chars must be positive when configured")
         self._session_tokens_used = 0
@@ -135,6 +176,14 @@ class RivotrilAgent:
 
         plugin_guardrails, plugin_verifiers = load_plugins(plugins)
         self.guardrails = (guardrails or []) + plugin_guardrails
+        self.parallel_guardrails = parallel_guardrails
+        if (
+            isinstance(guardrail_workers, bool)
+            or not isinstance(guardrail_workers, int)
+            or guardrail_workers < 1
+        ):
+            raise ValueError("guardrail_workers must be a positive integer")
+        self.guardrail_workers = guardrail_workers
 
         resolved_memory_path = _resolve(memory_path, "memory_path", None)
         resolved_memory_max_tokens = _resolve(memory_max_tokens, "memory_max_tokens", None)
@@ -198,6 +247,18 @@ class RivotrilAgent:
             self.async_rate_limiter = AsyncRateLimiter(rate_limit_max_calls, rate_limit_per_seconds)
 
         retry_exceptions = self.provider.retryable_exceptions()
+        if self.session_budget is not None:
+            # Hidden SDK retries cannot receive independent cost reservations.
+            if not isinstance(self.provider, OpenAIProvider):
+                raise ValueError(
+                    "Estimated session cost limits currently require an OpenAI-compatible provider"
+                )
+            if (
+                self.provider._base_client is not None
+                or self.provider._async_base_client is not None
+            ):
+                raise ValueError("Cost budgets require fresh SDK clients with retries disabled")
+            self.provider.extra_kwargs["max_retries"] = 0
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=circuit_failure_threshold,
             recovery_timeout=circuit_recovery_timeout,
@@ -236,7 +297,7 @@ class RivotrilAgent:
         messages: list[Any] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-        messages.extend(self.memory.get_context())
+        messages.extend(self.memory.get_context(query=content_to_text(prompt)))
         normalized_context = _normalize_context_sources(context_sources)
         if normalized_context:
             messages.append(
@@ -253,12 +314,54 @@ class RivotrilAgent:
         return messages
 
     def _run_preflight(self, prompt: str) -> None:
-        for guardrail in self.guardrails:
+        def check(guardrail: Guardrail) -> None:
             try:
                 guardrail.validate_input(prompt)
             except GuardrailViolationError as exc:
                 logger.warning("Guardrail %r blocked input: %s", guardrail.name, exc)
                 raise
+
+        if self.parallel_guardrails and len(self.guardrails) > 1:
+            # Network-bound guardrails (moderation, Jev) overlap instead of
+            # adding up. All finish before the LLM call; first failure raises.
+            with ThreadPoolExecutor(
+                max_workers=min(self.guardrail_workers, len(self.guardrails))
+            ) as pool:
+                for future in [pool.submit(check, g) for g in self.guardrails]:
+                    future.result()
+            return
+        for guardrail in self.guardrails:
+            check(guardrail)
+
+    async def _run_preflight_async(self, prompt: str) -> None:
+        if self.parallel_guardrails or any(
+            getattr(g, "network_bound", False) for g in self.guardrails
+        ):
+            await run_sync(self._run_preflight, prompt)
+        else:
+            self._run_preflight(prompt)
+
+    async def _build_messages_async(
+        self, prompt: PromptContent, context_sources: ContextSources = None
+    ) -> list[Any]:
+        if self.memory.select is not None:
+            return await run_sync(self._build_messages, prompt, context_sources)
+        return self._build_messages(prompt, context_sources)
+
+    async def _run_post_generation_async(
+        self,
+        prompt: str,
+        response_text: str,
+        response: Any,
+        context_sources: ContextSources,
+    ) -> Any:
+        if self.memory.summarize is not None or any(
+            getattr(g, "network_bound", False) for g in self.guardrails
+        ):
+            return await run_sync(
+                self._run_post_generation, prompt, response_text, response, context_sources
+            )
+        return self._run_post_generation(prompt, response_text, response, context_sources)
 
     def _run_post_generation(
         self,
@@ -267,6 +370,7 @@ class RivotrilAgent:
         response: Any,
         context_sources: ContextSources,
     ) -> Any:
+        self._check_response_size(len(response_text))
         normalized_context = _normalize_context_sources(context_sources)
         for guardrail in self.guardrails:
             try:
@@ -288,11 +392,17 @@ class RivotrilAgent:
         kwargs: dict[str, Any] = {}
         if self.request_timeout is not None:
             kwargs["timeout"] = self.request_timeout
+        if self.max_output_tokens is not None:
+            kwargs.update(self.provider.generation_limit_kwargs(self.max_output_tokens))
         return kwargs
 
     def _count_tokens(self, text: str) -> int:
+        # Large inputs are counted without retaining even a fingerprint.
+        if len(text) > 16384:
+            return len(self.tokenizer.encode(text))
+        key = _cache_fingerprint(text)
         with self._token_count_cache_lock:
-            cached = self._token_count_cache.get(text)
+            cached = self._token_count_cache.get(key)
             if cached is not None:
                 return cached
 
@@ -300,8 +410,73 @@ class RivotrilAgent:
         with self._token_count_cache_lock:
             if len(self._token_count_cache) >= 4096:
                 self._token_count_cache.pop(next(iter(self._token_count_cache)))
-            self._token_count_cache[text] = count
+            self._token_count_cache[key] = count
         return count
+
+    def _check_response_size(self, size: int) -> None:
+        if self.max_response_chars is not None and size > self.max_response_chars:
+            raise GuardrailViolationError("Response exceeds max_response_chars limit")
+
+    @contextmanager
+    def _generation(self, kwargs: dict[str, Any]) -> Generator[dict[str, Any], None, None]:
+        # Include schemas and message framing in the local input estimate.
+        serialized = json.dumps(kwargs, default=str, ensure_ascii=False)
+        schema = kwargs.get("response_model")
+        if schema is not None:
+            serialized += json.dumps(schema.model_json_schema())
+        input_tokens = self._count_tokens(serialized) + 256
+        budget = self.session_budget
+        if budget and any(
+            not isinstance(m.get("content", ""), str) for m in kwargs.get("messages", [])
+        ):
+            raise ValueError("Estimated session cost limits currently support text-only messages")
+        reservation = budget.reserve(input_tokens, self.max_output_tokens) if budget else None
+        state: dict[str, Any] = {"response": None, "chunks": [], "usage": None}
+        failed = True
+        try:
+            yield state
+            failed = False
+        finally:
+            response = state["response"]
+            reported_in = getattr(response, "prompt_tokens", None)
+            reported_out = getattr(response, "completion_tokens", None)
+            if state["usage"] is not None:
+                reported_in, reported_out = state["usage"]
+            estimated = reported_in is None or reported_out is None
+            output_text = response.text if response is not None else "".join(state["chunks"])
+            if response is not None and getattr(response, "tool_calls", None):
+                output_text += json.dumps(
+                    [
+                        {"name": c.name, "arguments": c.arguments}
+                        for c in normalize_tool_calls(response)
+                    ]
+                )
+            actual_in = reported_in if reported_in is not None else input_tokens
+            actual_out = (
+                reported_out if reported_out is not None else self._count_tokens(output_text)
+            )
+            cost = None
+            if budget is not None and reservation is not None:
+                actual_cost = None if estimated or failed else budget.cost(actual_in, actual_out)
+                budget.settle(reservation, actual_cost)
+                cost = float(reservation if actual_cost is None else actual_cost)
+            elif self.track_costs:
+                cost = estimate_cost(self.provider.name, self.model, actual_in, actual_out)
+            self.metrics.log_provider_usage(actual_in, actual_out, failed, estimated, cost)
+
+    def _provider_complete(self, **kwargs: Any) -> Any:
+        if self.session_budget is not None and kwargs.get("response_model") is not None:
+            kwargs["max_retries"] = 1
+        with self._generation(kwargs) as state:
+            state["response"] = self.provider.complete(**kwargs)
+            return state["response"]
+
+    async def _provider_acomplete(self, **kwargs: Any) -> Any:
+        if self.session_budget is not None and kwargs.get("response_model") is not None:
+            kwargs["max_retries"] = 1
+        with self._generation(kwargs) as state:
+            state["response"] = await self.provider.acomplete(**kwargs)
+            return state["response"]
 
     def _summarize_history(self, text: str) -> str:
         """Compact old memory turns into a short summary via a direct provider call.
@@ -312,7 +487,7 @@ class RivotrilAgent:
         as "skip this round's summary" rather than a fatal error. Only used
         when ``memory_summarize=True`` is explicitly passed.
         """
-        response = self.provider.complete(
+        response = self._provider_complete(
             model=self.model,
             messages=[
                 {
@@ -325,8 +500,9 @@ class RivotrilAgent:
                 },
                 {"role": "user", "content": text},
             ],
+            **self._llm_call_kwargs(),
         )
-        return response.text
+        return cast(str, response.text)
 
     def _redact(self, text: PromptContent) -> PromptContent:
         if not self.redact_pii:
@@ -343,6 +519,15 @@ class RivotrilAgent:
         """
         if not self.redact_pii or not isinstance(response, ProviderResponse):
             return response
+        if response.tool_calls:
+            response.tool_calls = [
+                {
+                    "id": call.id,
+                    "name": call.name,
+                    "arguments": json.loads(self.pii_redactor.redact(json.dumps(call.arguments))),
+                }
+                for call in normalize_tool_calls(response)
+            ]
         if response.structured is not None:
             model_cls = response_model or type(response.structured)
             redacted_json = self.pii_redactor.redact(response.structured.model_dump_json())
@@ -359,6 +544,8 @@ class RivotrilAgent:
     ) -> float | None:
         if not self.track_costs:
             return None
+        if self._last_cache_hit:
+            return 0.0
 
         provider_name = getattr(self.provider, "name", "base")
         prompt_tokens: int | None = getattr(response, "prompt_tokens", None)
@@ -488,6 +675,17 @@ class RivotrilAgent:
         self, prompt: PromptContent, context_sources: ContextSources = None
     ) -> int:
         """Return token count for the prompt; raise if budget is exceeded."""
+        context = _normalize_context_sources(context_sources)
+        if self.max_context_chars is not None and len(context or "") > self.max_context_chars:
+            raise ValueError("Context exceeds max_context_chars limit")
+        if self.max_attachment_bytes is not None and isinstance(prompt, list):
+            attachment_size = sum(
+                len(json.dumps(part, ensure_ascii=False).encode("utf-8"))
+                for part in prompt
+                if part.get("type", "text") != "text"
+            )
+            if attachment_size > self.max_attachment_bytes:
+                raise ValueError("Attachments exceed max_attachment_bytes limit")
         prompt_text = content_to_text(prompt)
         if self.max_prompt_chars is not None and len(prompt_text) > self.max_prompt_chars:
             raise ValueError(
@@ -526,7 +724,7 @@ class RivotrilAgent:
     def _execute_structured(
         self, messages: list[Any], response_model: type[BaseModel], tools: list[Any] | None
     ) -> Any:
-        response = self.provider.complete(
+        response = self._provider_complete(
             model=self.model,
             response_model=response_model,
             messages=messages,
@@ -536,7 +734,7 @@ class RivotrilAgent:
         return response
 
     def _execute_unstructured(self, messages: list[Any], tools: list[Any] | None) -> Any:
-        response = self.provider.complete(
+        response = self._provider_complete(
             model=self.model,
             messages=messages,
             tools=tools,
@@ -547,7 +745,7 @@ class RivotrilAgent:
     async def _execute_structured_async(
         self, messages: list[Any], response_model: type[BaseModel], tools: list[Any] | None
     ) -> Any:
-        response = await self.provider.acomplete(
+        response = await self._provider_acomplete(
             model=self.model,
             response_model=response_model,
             messages=messages,
@@ -559,7 +757,7 @@ class RivotrilAgent:
     async def _execute_unstructured_async(
         self, messages: list[Any], tools: list[Any] | None
     ) -> Any:
-        response = await self.provider.acomplete(
+        response = await self._provider_acomplete(
             model=self.model,
             messages=messages,
             tools=tools,
@@ -611,6 +809,19 @@ class RivotrilAgent:
         response_model: type[BaseModel] | None,
         tools: list[Any] | None,
     ) -> str:
+        return self._budget_cache_key(self._base_cache_key(messages, response_model, tools))
+
+    def _budget_cache_key(self, key: str) -> str:
+        if self.max_output_tokens is None:
+            return key
+        return _cache_fingerprint(f"{key}:max_output_tokens={self.max_output_tokens}")
+
+    def _base_cache_key(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None,
+        tools: list[Any] | None,
+    ) -> str:
         if self.cache_key_fn is cache_key:
             return cast(
                 str,
@@ -652,7 +863,8 @@ class RivotrilAgent:
                 return self._execute_structured(messages, response_model, tools)
             return self._execute_unstructured(messages, tools)
 
-        response = self.circuit_breaker.call(_call)
+        with self._capacity.slot():
+            response = self.circuit_breaker.call(_call)
         response = self._redact_response(response, response_model)
         self._cache_store(messages, response_model, response, tools)
         return response
@@ -679,7 +891,8 @@ class RivotrilAgent:
                 return await self._execute_structured_async(messages, response_model, tools)
             return await self._execute_unstructured_async(messages, tools)
 
-        response = await self.circuit_breaker.call_async(_call)
+        async with self._capacity.async_slot():
+            response = await self.circuit_breaker.call_async(_call)
         response = self._redact_response(response, response_model)
         self._cache_store(messages, response_model, response, tools)
         return response
@@ -870,6 +1083,8 @@ class RivotrilAgent:
         response_model: type[BaseModel] | None = None,
         context_sources: ContextSources = None,
         tools: list[Any] | str | None = None,
+        execute_tools: bool = True,
+        return_provider_response: bool = False,
     ) -> Any:
         start_time = time.time()
         guardrail_blocked = False
@@ -886,8 +1101,8 @@ class RivotrilAgent:
 
         logger.debug("Starting agent.run_async")
         try:
-            self._run_preflight(content_to_text(prompt))
-            messages = self._build_messages(prompt, context_sources)
+            await self._run_preflight_async(content_to_text(prompt))
+            messages = await self._build_messages_async(prompt, context_sources)
             if response_model is not None and self.schema_repair_attempts > 0:
                 response = await self._execute_structured_with_repair_async(
                     messages, response_model, tools=tool_registry.schemas if tool_registry else None
@@ -897,7 +1112,7 @@ class RivotrilAgent:
                     messages, response_model, tools=tool_registry.schemas if tool_registry else None
                 )
 
-            if tool_registry is not None and response_model is None:
+            if tool_registry is not None and response_model is None and execute_tools:
                 response = await self._handle_tool_calls_async(response, messages, tool_registry)
 
             if response_model is not None:
@@ -913,10 +1128,26 @@ class RivotrilAgent:
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
             cost_usd = self._estimate_execution_cost(response, messages, response_text)
-            self._run_post_generation(
+            if return_provider_response and normalize_tool_calls(response):
+                tool_payload = json.dumps(
+                    [
+                        {"name": call.name, "arguments": call.arguments}
+                        for call in normalize_tool_calls(response)
+                    ]
+                )
+                for guardrail in self.guardrails:
+                    if getattr(guardrail, "network_bound", False):
+                        await run_sync(guardrail.validate_output, tool_payload, model=self.model)
+                    else:
+                        guardrail.validate_output(tool_payload, model=self.model)
+                self._check_response_size(len(tool_payload))
+                return response
+            await self._run_post_generation_async(
                 content_to_text(prompt), response_text, response, context_sources
             )
             logger.info("Agent async run completed successfully")
+            if return_provider_response:
+                return response
             if response_model is not None:
                 return response.structured
             return response_text
@@ -1009,20 +1240,35 @@ class RivotrilAgent:
 
     def _stream_chunks(
         self, messages: list[Any], tool_registry: ToolRegistry | None = None
-    ) -> Iterator[str]:
+    ) -> Generator[str, None, None]:
         """Yield text chunks from the provider's synchronous stream.
 
         See :meth:`run_stream` for how ``tool_registry`` changes behavior.
         """
         tool_call_deltas: dict[int, dict[str, Any]] = {}
         stream_kwargs = self._llm_call_kwargs()
+        if isinstance(self.provider, OpenAIProvider) and (self.track_costs or self.session_budget):
+            stream_kwargs["stream_options"] = {"include_usage": True}
         if tool_registry is not None:
             stream_kwargs["tools"] = tool_registry.schemas
-        stream = self.provider.stream(model=self.model, messages=messages, **stream_kwargs)
-        for chunk in stream:
-            content = self._extract_stream_content(chunk, tool_call_deltas)
-            if content:
-                yield content
+        with (
+            self._capacity.slot(),
+            self._generation({"messages": messages, **stream_kwargs}) as state,
+        ):
+            stream = self.provider.stream(model=self.model, messages=messages, **stream_kwargs)
+            try:
+                for chunk in stream:
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None:
+                        state["usage"] = (usage.prompt_tokens, usage.completion_tokens)
+                    content = self._extract_stream_content(chunk, tool_call_deltas)
+                    if content:
+                        state["chunks"].append(content)
+                        yield content
+            finally:
+                close = getattr(stream, "close", None)
+                if close is not None:
+                    close()
 
         if tool_call_deltas and tool_registry is not None:
             fake_response = ProviderResponse(
@@ -1033,21 +1279,33 @@ class RivotrilAgent:
 
     async def _astream_chunks(
         self, messages: list[Any], tool_registry: ToolRegistry | None = None
-    ) -> AsyncIterator[str]:
+    ) -> AsyncGenerator[str, None]:
         """Yield text chunks from the provider's asynchronous stream.
 
         See :meth:`run_stream` for how ``tool_registry`` changes behavior.
         """
         tool_call_deltas: dict[int, dict[str, Any]] = {}
         stream_kwargs = self._llm_call_kwargs()
+        if isinstance(self.provider, OpenAIProvider) and (self.track_costs or self.session_budget):
+            stream_kwargs["stream_options"] = {"include_usage": True}
         if tool_registry is not None:
             stream_kwargs["tools"] = tool_registry.schemas
-        async for chunk in self.provider.astream(
-            model=self.model, messages=messages, **stream_kwargs
-        ):
-            content = self._extract_stream_content(chunk, tool_call_deltas)
-            if content:
-                yield content
+        async with self._capacity.async_slot():
+            with self._generation({"messages": messages, **stream_kwargs}) as state:
+                stream = self.provider.astream(model=self.model, messages=messages, **stream_kwargs)
+                try:
+                    async for chunk in stream:
+                        usage = getattr(chunk, "usage", None)
+                        if usage is not None:
+                            state["usage"] = (usage.prompt_tokens, usage.completion_tokens)
+                        content = self._extract_stream_content(chunk, tool_call_deltas)
+                        if content:
+                            state["chunks"].append(content)
+                            yield content
+                finally:
+                    close = getattr(stream, "aclose", None)
+                    if close is not None:
+                        await close()
 
         if tool_call_deltas and tool_registry is not None:
             fake_response = ProviderResponse(
@@ -1113,6 +1371,7 @@ class RivotrilAgent:
         guardrail_blocked = False
         hallucination_blocked = False
         error_msg: str | None = None
+        response_chars = 0
         response_chunks: list[str] = []
         response_text = ""
         tokens = self._check_token_budget(prompt, context_sources)
@@ -1124,9 +1383,12 @@ class RivotrilAgent:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
-            for chunk in self._stream_chunks(messages, tool_registry):
-                response_chunks.append(chunk)
-                yield chunk
+            with closing(self._stream_chunks(messages, tool_registry)) as chunks:
+                for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             response_text = (
@@ -1201,14 +1463,18 @@ class RivotrilAgent:
         prompt = self._redact(prompt)
         tool_registry = ToolRegistry(tools) if tools is not None else None
 
+        response_chars = 0
         logger.debug("Starting agent.run_stream_async")
         try:
-            self._run_preflight(content_to_text(prompt))
-            messages = self._build_messages(prompt, context_sources)
+            await self._run_preflight_async(content_to_text(prompt))
+            messages = await self._build_messages_async(prompt, context_sources)
 
-            async for chunk in self._astream_chunks(messages, tool_registry):
-                response_chunks.append(chunk)
-                yield chunk
+            async with aclosing(self._astream_chunks(messages, tool_registry)) as chunks:
+                async for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             response_text = (
@@ -1216,7 +1482,7 @@ class RivotrilAgent:
             )
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(
+            await self._run_post_generation_async(
                 content_to_text(prompt), response_text, response_text, context_sources
             )
             logger.info("Agent async stream completed successfully")
@@ -1263,14 +1529,18 @@ class RivotrilAgent:
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
 
+        response_chars = 0
         logger.debug("Starting agent.run_stream (structured)")
         try:
             self._run_preflight(content_to_text(prompt))
             messages = self._build_messages(prompt, context_sources)
 
-            for chunk in self._stream_chunks(messages, None):
-                response_chunks.append(chunk)
-                yield chunk
+            with closing(self._stream_chunks(messages, None)) as chunks:
+                for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             structured_json = (
@@ -1336,14 +1606,18 @@ class RivotrilAgent:
         tokens = self._check_token_budget(prompt, context_sources)
         prompt = self._redact(prompt)
 
+        response_chars = 0
         logger.debug("Starting agent.run_stream_async (structured)")
         try:
-            self._run_preflight(content_to_text(prompt))
-            messages = self._build_messages(prompt, context_sources)
+            await self._run_preflight_async(content_to_text(prompt))
+            messages = await self._build_messages_async(prompt, context_sources)
 
-            async for chunk in self._astream_chunks(messages, None):
-                response_chunks.append(chunk)
-                yield chunk
+            async with aclosing(self._astream_chunks(messages, None)) as chunks:
+                async for chunk in chunks:
+                    response_chars += len(chunk)
+                    self._check_response_size(response_chars)
+                    response_chunks.append(chunk)
+                    yield chunk
 
             response_text = "".join(response_chunks)
             structured_json = (
@@ -1354,7 +1628,7 @@ class RivotrilAgent:
 
             tokens += len(self.tokenizer.encode(response_text))
             self._add_session_tokens(tokens)
-            self._run_post_generation(
+            await self._run_post_generation_async(
                 content_to_text(prompt), response_text, structured, context_sources
             )
             result_holder.result = structured

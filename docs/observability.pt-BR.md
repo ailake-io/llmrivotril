@@ -6,6 +6,17 @@
 
 ## Persistência automática de métricas
 
+`get_summary()["provider_usage"]` registra cada chamada visível ao SDK: `calls`,
+`failures`, `input_tokens`, `output_tokens`, `estimated_calls`, `unpriced_calls`
+e `cost_usd`. Inclui reparos, continuações de ferramentas e resumos de memória;
+cache hits não entram. Streaming usa o consumo OpenAI informado quando existe,
+ou estimativas. Custos exigem `track_costs=True` ou tarifas explícitas do orçamento;
+preço desconhecido entra em `unpriced_calls`, não significa chamada gratuita.
+Com limite estimado de custo por sessão, uso desconhecido mantém a reserva conservadora.
+Esses agregados são persistidos e zerados com as métricas. Não os some aos
+campos legados por requisição `total_cost_usd`/`tokens`. Retries internos opacos,
+ferramentas externas e taxas do provider não equivalem a uma fatura.
+
 Configure `RIVOTRIL_METRICS_PATH` (ou passe `metrics_path=`) para persistir
 telemetria em JSON automaticamente:
 
@@ -27,9 +38,27 @@ metrics.load_metrics("metrics.json")
 
 `MetricsCollector(max_logs=100)` limita o histórico de auditoria mantido em
 memória. Use `max_logs=0` quando precisar apenas dos contadores agregados e não
-quiser manter o conteúdo das requisições no processo.
+quiser manter o conteúdo das requisições no histórico de métricas. Isso não
+desativa a memória de conversa nem o cache de contagem de tokens do agente.
+São mantidas as últimas 1000 amostras de latência; a média acumulada usa
+contadores de tamanho constante. Erros e agregados de latência são persistidos,
+com leitura compatível de arquivos antigos.
 
 ## Dashboard local
+
+Para telemetria somente com metadados, injete
+`MetricsCollector(include_content=False)` em `RivotrilAgent(metrics=...)`.
+Prompt, resposta e detalhes de erro viram `[omitted]` antes de serem guardados
+ou persistidos, inclusive ao importar snapshots antigos. Contadores, tempos,
+tokens e presença de erros continuam disponíveis. Isso afeta apenas métricas;
+memória, caches e logs da aplicação têm políticas independentes.
+
+Execute `pytest -q tests/test_http_contracts.py` no venv de desenvolvimento
+para os contratos HTTP locais. O SDK OpenAI instalado e o adapter Azure usam
+`httpx.MockTransport`, sem sockets, contas ou credenciais reais. Há cobertura
+de chamadas sync/async, SSE, erros HTTP, timeout, retry do SDK e ferramentas.
+O caso de retry testa o SDK, não a camada de retry do agente. Providers nativos
+e AG2 ainda precisam de contratos adicionais; isso não valida serviços reais.
 
 Inicie o dashboard de telemetria:
 

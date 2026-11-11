@@ -23,6 +23,22 @@ class Answer(BaseModel):
     text: str
 
 
+@pytest.mark.parametrize(
+    "provider_type,expected",
+    [
+        (OpenAIProvider, {"max_completion_tokens": 32}),
+        (AzureOpenAIProvider, {"max_completion_tokens": 32}),
+        (AnthropicProvider, {"max_tokens": 32}),
+        (CohereProvider, {"max_tokens": 32}),
+        (GeminiProvider, {"config": {"max_output_tokens": 32}}),
+        (BedrockProvider, {"inferenceConfig": {"maxTokens": 32}}),
+    ],
+)
+def test_provider_generation_budget_mapping(provider_type, expected):
+    provider = provider_type.__new__(provider_type)
+    assert provider.generation_limit_kwargs(32) == expected
+
+
 def _package_installed(module: str) -> bool:
     try:
         __import__(module)

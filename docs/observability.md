@@ -6,6 +6,17 @@
 
 ## Automatic Metrics Persistence
 
+`get_summary()["provider_usage"]` reports every visible SDK invocation: `calls`,
+`failures`, `input_tokens`, `output_tokens`, `estimated_calls`, `unpriced_calls`
+and `cost_usd`. It includes repairs, tool continuations and memory summaries,
+and excludes cache hits. Streaming uses reported OpenAI usage when available;
+otherwise tokens are estimated. Prices require `track_costs=True` or explicit
+session-budget rates; unknown prices are counted as unpriced, not free calls.
+With an estimated session cost limit, unknown usage retains the conservative reserve.
+These aggregates are persisted/reset with metrics. They are separate from the
+legacy request-level `total_cost_usd`/`tokens`, which must not be added to them.
+Opaque retries inside SDKs, external tools and provider fees are not an invoice.
+
 Set `RIVOTRIL_METRICS_PATH` (or pass `metrics_path=`) to persist telemetry to JSON automatically:
 
 ```python
@@ -26,9 +37,27 @@ metrics.load_metrics("metrics.json")
 
 `MetricsCollector(max_logs=100)` bounds the in-memory audit trail. Set
 `max_logs=0` when only aggregate counters are needed and request content must
-not be retained in the process.
+not be retained in the metrics audit trail. This does not disable conversation
+memory or the agent's token-count cache. The latest 1000 latency samples are
+retained; the cumulative average uses constant-size counters. Error counts and
+latency aggregates survive persistence, including loading legacy snapshots.
 
 ## Local Dashboard
+
+For metadata-only telemetry, inject
+`MetricsCollector(include_content=False)` into `RivotrilAgent(metrics=...)`.
+Prompt, response and error details become `[omitted]` before retention or
+persistence, including when loading old snapshots. Counters, timings, tokens
+and error presence remain available. This setting applies to metrics only;
+conversation memory, caches and application logging have separate policies.
+
+Run `pytest -q tests/test_http_contracts.py` in the development venv for offline
+HTTP contracts. The installed OpenAI SDK and Azure adapter use
+`httpx.MockTransport`: no sockets, accounts or real credentials. Tests cover
+sync/async completion, SSE, status errors, timeout mapping, SDK retry and tool
+serialization. The retry case tests the SDK, not the agent retry layer.
+Native providers and AG2 still need additional contracts; these tests do not
+establish live service compatibility.
 
 Start the telemetry dashboard:
 

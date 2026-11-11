@@ -112,11 +112,22 @@ roteamento (mapeado de melhor esforço a partir do provider real do agente,
 com fallback pra `ModelProvider.OPENAI`) -- guardrails/PII/cache rodam
 independente do que ele diz.
 
-Não implementado: tool-calling e saída estruturada. O AG2 passa
-`tools=`/`response_schema=` pra chamada do `LLMClient`, mas este adapter
-ignora e sempre devolve uma resposta em texto puro -- o AG2 trata isso como
-"o modelo escolheu não chamar nenhuma tool", não como erro, então degrada de
-forma segura em vez de quebrar. Streaming também não está implementado.
+AG2 1.3.0 exige Python 3.11 ou superior; o núcleo ainda suporta Python 3.10.
+Validado localmente com AG2 1.3.0 (agora a versão mínima): schemas de funções
+chegam ao provider e chamadas voltam como `ToolCallEvent` para o AG2 executar.
+O adapter não executa as ferramentas do AG2 diretamente. Saídas com
+`ResponseSchema` são validadas antes de devolver o `ModelResponse` final.
+Validadores `ResponseProto` personalizados ficam a cargo do AG2 para evitar
+executar callbacks duas vezes; schema e instruções seguem no prompt.
+
+Use `RivotrilModelConfig(worker, stream=True)` para enviar `ModelMessageChunk`
+ao contexto do AG2. Turnos com funções usam completion; combinar ferramentas e
+schema no mesmo turno, ferramentas diferidas ou de outro tipo gera erro
+explícito. Chunks estruturados são emitidos antes da validação final, como no
+streaming normal do llmrivotril. Mensagens continuam projetadas em texto;
+anexos binários e metadados de raciocínio nativos não são preservados. Os testes
+incluem um `ag2.Agent` real executando ferramenta local e a chamada seguinte,
+sem serviço externo de modelos.
 
 Precisa da API clássica pré-1.0 `AssistantAgent`/`register_model_client`?
 Fixe `ag2<1.0` e veja o histórico git deste projeto de antes desta reescrita

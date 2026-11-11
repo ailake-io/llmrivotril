@@ -47,6 +47,7 @@ class MemoryStore:
         summarize: Callable[[str], str] | None = None,
         summarize_trigger_turns: int = 20,
         encryption_key: str | bytes | None = None,
+        select: Callable[[list[dict[str, str]], str], list[dict[str, str]]] | None = None,
     ) -> None:
         if retention_window <= 0:
             raise ValueError("retention_window must be positive")
@@ -56,6 +57,7 @@ class MemoryStore:
         self.summarize = summarize
         self.summarize_trigger_turns = summarize_trigger_turns
         self.encryption_key = encryption_key or os.environ.get("RIVOTRIL_MEMORY_KEY")
+        self.select = select
         self.history: list[dict[str, str]] = []
         self._summary: str | None = None
         self.auto_save_path = auto_save_path
@@ -123,10 +125,29 @@ class MemoryStore:
         with self._lock:
             self._summary = f"{self._summary}\n{new_summary}" if self._summary else new_summary
 
-    def get_context(self) -> list[dict[str, str]]:
+    def get_context(self, query: str | None = None) -> list[dict[str, str]]:
+        """Return history (+ summary). With ``select`` and ``query``, turns not
+        relevant to ``query`` are dropped from this prompt (not from storage)."""
         with self._lock:
             turns = [turn.copy() for turn in self.history]
             summary = self._summary
+        if self.select is not None and query and turns:
+            try:
+                selected = self.select([turn.copy() for turn in turns], query)
+                if not isinstance(selected, list):
+                    raise ValueError("Context selector must return a list")
+                # Accept only an ordered subset, never invented or modified
+                # messages. Keep the original snapshot for safe fallback.
+                cursor = 0
+                for item in selected:
+                    while cursor < len(turns) and turns[cursor] != item:
+                        cursor += 1
+                    if cursor == len(turns):
+                        raise ValueError("Context selector must return an ordered subset")
+                    cursor += 1
+                turns = [turn.copy() for turn in selected]
+            except Exception:
+                logger.warning("Memory context selection failed; using full history.")
         if summary:
             summary_turn = {
                 "role": "system",
