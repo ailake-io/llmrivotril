@@ -213,6 +213,8 @@ Rode [comparações locais](docs/local-benchmark.pt-BR.md) sem conta de modelos.
 são opcionais via `llmrivotril[jev]`. Usam TypeSafe por padrão ou um servidor
 local compatível, como [`local-jev`](https://github.com/amithgc/local-jev), via
 `base_url=`; a inferência local não tem cobrança por chamada.
+O Ollama 0.35+ também oferece essa API; veja a
+[configuração local](docs/guardrails-and-safety.pt-BR.md#triagem-semântica-jev-opcional).
 `parallel_guardrails=True` executa verificações de entrada em pool limitado.
 Configure `max_concurrent_calls` para limitar concorrência por agente. Feche
 streams explicitamente ao parar cedo; veja [confiabilidade](docs/reliability.pt-BR.md).

@@ -84,6 +84,23 @@ and model weights have separate licenses; check the license for the model you
 choose. Its accuracy and calibration differ from hosted Jev, so evaluate it on
 your own cases.
 
+Ollama 0.35+ also exposes this API directly. Pull a decision model (for example,
+`ollama pull tev1:0.8b`), then configure the adapter like this:
+
+```python
+guardrail = JevGuardrail(
+    base_url="http://127.0.0.1:11434",
+    api_key="ollama",
+    model="tev1:0.8b",
+)
+```
+
+Ollama's `/v1/systemone` route is local and does not charge per call. Model
+quality varies: in our local smoke test, `tev1:0.8b` allowed a benign question
+and blocked a harmful instruction at `0.89`, but retained all turns in one
+context-selection example. This small test is not an accuracy or calibration
+benchmark.
+
 **Semantic output rules.** `output_rules=["The reply promises a refund"]` adds
 one Noul question per rule to the same Jev call on output. Use it for meaning
 (a field's value contradicts another); structural JSON checks stay

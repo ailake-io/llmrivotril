@@ -222,8 +222,9 @@ Optional [Jev checks and context selection](docs/guardrails-and-safety.md#jev-tr
 are available through `llmrivotril[jev]`. They use TypeSafe by default or a
 local System One-compatible server such as
 [`local-jev`](https://github.com/amithgc/local-jev) with `base_url=`; local
-inference has no per-call provider charge. Input guardrails can run in a bounded
-pool with `parallel_guardrails=True`.
+inference has no per-call provider charge. Ollama 0.35+ also supports this API;
+see the [local setup](docs/guardrails-and-safety.md#jev-triage-guardrail).
+Input guardrails can run in a bounded pool with `parallel_guardrails=True`.
 Set `max_concurrent_calls` to bound provider concurrency per agent. Explicitly
 close streams when stopping early; see [reliability](docs/reliability.md).
 

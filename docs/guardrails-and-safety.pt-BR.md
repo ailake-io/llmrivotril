@@ -94,6 +94,23 @@ licença do servidor e a dos pesos são distintas; confira o README do modelo
 escolhido. Resultados e calibração não são equivalentes aos do Jev hospedado e
 devem ser avaliados nos seus casos.
 
+Ollama 0.35+ também oferece essa API diretamente. Baixe um modelo de decisão
+(por exemplo, `ollama pull tev1:0.8b`) e configure o adapter assim:
+
+```python
+guardrail = JevGuardrail(
+    base_url="http://127.0.0.1:11434",
+    api_key="ollama",
+    model="tev1:0.8b",
+)
+```
+
+A rota `/v1/systemone` do Ollama é local e não cobra por chamada. A qualidade
+varia entre modelos: no teste local, `tev1:0.8b` liberou uma pergunta benigna e
+bloqueou uma instrução nociva com probabilidade `0,89`, mas manteve todos os
+turnos em um exemplo de seleção de contexto. Esse teste pequeno não mede
+precisão nem calibração.
+
 `MemoryStore(select=JevContextSelector())` filtra grupos da conversa sem alterar
 o histórico salvo. Pares usuário/resposta são preservados juntos; o grupo mais
 recente e instruções de sistema permanecem. Em falhas, mantém todo o contexto.

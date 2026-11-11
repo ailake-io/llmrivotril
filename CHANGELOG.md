@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Local Jev-compatible backend
 
 - Allow Jev guardrails and context selection to target a local System One API
-  through `base_url`, including `local-jev`; document local setup, costs and
-  model-calibration caveats in English and Portuguese.
+  through `base_url`, including local-jev and Ollama 0.35+; document setup,
+  costs and model-calibration caveats in English and Portuguese.
 - Add a local-endpoint SDK construction test. Model weights and the server are
   not downloaded as part of llmrivotril installation.
 
