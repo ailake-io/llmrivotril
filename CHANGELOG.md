@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-16
+
+### Compatibility
+
+- Permit OpenAI Python SDK versions 2.x and 3.x (`openai>=2.0.0,<4.0.0`).
+- Validate the widened dependency range with CI, including Python 3.10–3.15,
+  optional extras, package build and dependency audit.
+
 ## [0.2.0] - 2026-11-11
 
 ### Local Jev-compatible backend
