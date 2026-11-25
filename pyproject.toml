@@ -100,8 +100,12 @@ adk = [
 autogen = [
     "ag2>=1.3.0,<2.0.0",
 ]
+# Composite extras skip integrations whose SDKs do not support the running Python.
+# Individual extras (e.g. [crewai]) stay unmarked so pip fails loudly instead.
 integrations = [
-    "llmrivotril[crewai,langchain,adk,autogen]",
+    "llmrivotril[langchain,adk]",
+    "llmrivotril[crewai]; python_version < '3.14'",
+    "llmrivotril[autogen]; python_version >= '3.11'",
 ]
 ci = [
     "pytest>=7.0.0",
