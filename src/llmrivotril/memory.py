@@ -147,7 +147,9 @@ class MemoryStore:
                     cursor += 1
                 turns = [turn.copy() for turn in selected]
             except Exception:
-                logger.warning("Memory context selection failed; using full history.")
+                logger.warning(
+                    "Memory context selection failed; using full history.", exc_info=True
+                )
         if summary:
             summary_turn = {
                 "role": "system",

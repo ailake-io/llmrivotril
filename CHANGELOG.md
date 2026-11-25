@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Qdrant: pass point IDs as strings so `qdrant-client` versions older than 1.20 accept them.
+
+### Changed
+
+- `llmrivotril.providers` is now a package (one module per provider); public imports are unchanged.
+- Raise dependency floors to releases from the last 12 months (e.g. `pydantic>=2.12.0`, `openai>=2.9.0`, `anthropic>=0.76.0`, `google-genai>=1.53.0`, `sentence-transformers>=5.2.0`); upper bounds unchanged.
+- Composite extras (`providers`, `vector-stores`, `integrations`, `dev`) reference individual extras instead of duplicating pins; new `all` extra. Composite extras skip `crewai` on Python ≥3.14 and `ag2` on Python 3.10 via environment markers, so `[all]` installs on every supported Python.
+
+### CI
+
+- New `min-deps` job tests the lowest allowed dependency versions.
+- `extras` job now installs `.[ci,all]` on Python 3.10, 3.12 and 3.15; `min-deps` runs on 3.10 and 3.12.
+- Runners use `ubuntu-latest`; Dependabot groups `github/codeql-action` updates.
+
 ## [0.2.1] - 2026-11-16
 
 ### Compatibility

@@ -19,7 +19,7 @@ concurrency:
 jobs:
   publish:
     name: Build and publish distributions
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/llmrivotril
