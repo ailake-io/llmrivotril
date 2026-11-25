@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `llmrivotril.providers` is now a package (one module per provider); public imports are unchanged.
-- Raise the `gemini` extra floor to `google-genai>=1.40.0` (required by `ag2` when both are installed).
+- Raise dependency floors to releases from the last 12 months (e.g. `pydantic>=2.12.0`, `openai>=2.9.0`, `anthropic>=0.76.0`, `google-genai>=1.53.0`, `sentence-transformers>=5.2.0`); upper bounds unchanged.
 - Composite extras (`providers`, `vector-stores`, `integrations`, `dev`) reference individual extras instead of duplicating pins; new `all` extra.
 
 ### CI
