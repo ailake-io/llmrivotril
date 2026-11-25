@@ -102,10 +102,11 @@ autogen = [
 ]
 # Composite extras skip integrations whose SDKs do not support the running Python.
 # Individual extras (e.g. [crewai]) stay unmarked so pip fails loudly instead.
+# Pins are repeated here because hatchling drops markers on self-referencing extras.
 integrations = [
     "llmrivotril[langchain,adk]",
-    "llmrivotril[crewai]; python_version < '3.14'",
-    "llmrivotril[autogen]; python_version >= '3.11'",
+    "crewai>=1.6.0,<2.0.0; python_version < '3.14'",
+    "ag2>=1.3.0,<2.0.0; python_version >= '3.11'",
 ]
 ci = [
     "pytest>=7.0.0",
