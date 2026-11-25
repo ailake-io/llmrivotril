@@ -66,7 +66,8 @@ jobs:
       - name: Check package metadata
         run: twine check dist/*
 
-  extras:
+  extras-matrix:
+    name: extras (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -91,6 +92,15 @@ jobs:
 
       - name: Run tests with extras installed
         run: pytest -v
+
+  extras:
+    # Stable name for branch protection; the matrix job names include the Python version.
+    if: always()
+    needs: extras-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all extras jobs to pass
+        run: test "${{ needs.extras-matrix.result }}" = success
 
   min-deps:
     # Install the lowest versions allowed by pyproject.toml to catch floors that are too low.
