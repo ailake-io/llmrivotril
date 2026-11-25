@@ -243,7 +243,7 @@ class QdrantRetriever(BaseRetriever):
             doc_id = _stable_document_id(doc)
             points.append(
                 PointStruct(
-                    id=_stable_uuid(doc_id),
+                    id=str(_stable_uuid(doc_id)),
                     vector=list(embeddings[i]),
                     payload={"content": doc.content, "metadata": doc.metadata, "doc_id": doc_id},
                 )
