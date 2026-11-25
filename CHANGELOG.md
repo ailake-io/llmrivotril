@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-25
+
 ### Fixed
 
 - Qdrant: pass point IDs as strings so `qdrant-client` versions older than 1.20 accept them.

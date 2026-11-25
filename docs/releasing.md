@@ -49,9 +49,9 @@ deleting the GitHub secret.
 Do not reuse a version that has already been uploaded: PyPI release files are
 immutable. Update the changelog and package version before creating a new tag.
 
-## Previous release record (0.2.0)
+## Previous release record (0.2.1)
 
-Version `0.2.0` was published successfully with a wheel and source distribution
+Version `0.2.1` was published successfully with a wheel and source distribution
 using the token workflow. Changes under `[Unreleased]` are not included in
 that published tag, even when they have subsequently been merged into `main`.
 
