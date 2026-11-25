@@ -21,8 +21,9 @@ Thank you for your interest in improving LLM-Rivotril!
 
 ## Development Workflow
 
-1. Create a feature branch:
+1. Create a feature branch from `develop`:
    ```bash
+   git checkout develop && git pull
    git checkout -b feature/your-feature-name
    ```
 2. Make your changes, adding tests for new behavior.
@@ -36,7 +37,31 @@ Thank you for your interest in improving LLM-Rivotril!
    ruff format --check src tests examples scripts
    mypy src
    ```
-5. Commit your changes and open a pull request.
+5. Commit your changes and open a pull request against `develop`.
+
+## Branching and Merging
+
+- `main` holds released code; `develop` is the integration branch.
+- Feature and fix PRs target `develop` and are **squash-merged**.
+- Group related changes in one PR instead of a chain of follow-ups.
+- Releases go `develop` → `main` through a PR merged with a **merge commit**
+  (never squash). Squashing creates a commit `develop` does not have, so the
+  branches diverge and the next release PR conflicts.
+- Hotfixes merged straight into `main` must be merged back into `develop`
+  right away.
+
+## CI and Branch Protection
+
+`main` requires these check names: `lint-and-test (3.10)` to `(3.13)`,
+`build`, `extras`, `Dependency audit` and `Analyze Python` (CodeQL).
+
+- Renaming a job or turning it into a matrix changes its check name. Keep the
+  required name (for example with an aggregate job, as `extras` does) or update
+  branch protection in the same change.
+- Workflows only run actions in the repository allowlist, which is pinned by
+  commit SHA. When Dependabot bumps an action, a maintainer must add the new SHA
+  under Settings → Actions → General before merging; otherwise the workflow
+  ends in `startup_failure`, which `gh pr checks` does not report.
 
 ## Code Style
 
