@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Qdrant: pass point IDs as strings so `qdrant-client` versions older than 1.20 accept them.
+
+### Changed
+
+- `llmrivotril.providers` is now a package (one module per provider); public imports are unchanged.
+- Raise the `gemini` extra floor to `google-genai>=1.40.0` (required by `ag2` when both are installed).
+- Composite extras (`providers`, `vector-stores`, `integrations`, `dev`) reference individual extras instead of duplicating pins; new `all` extra.
+
+### CI
+
+- New `min-deps` job tests the lowest allowed dependency versions.
+- `extras` job now installs `.[ci,all]`.
+- Runners use `ubuntu-latest`; Dependabot groups `github/codeql-action` updates.
+
 ## [0.2.1] - 2026-11-16
 
 ### Compatibility
